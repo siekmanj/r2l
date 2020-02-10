@@ -18,8 +18,8 @@ def create_logger(args):
     "You must provide a 'seed' key in your command line arguments"
   assert "logdir" in arg_dict, \
     "You must provide a 'logdir' key in your command line arguments."
-  assert "env_name" in arg_dict, \
-    "You must provide a 'env_name' key in your command line arguments."
+  assert "env" in arg_dict, \
+    "You must provide a 'env' key in your command line arguments."
 
   # sort the keys so the same hyperparameters will always have the same hash
   arg_dict = OrderedDict(sorted(arg_dict.items(), key=lambda t: t[0]))
@@ -28,7 +28,7 @@ def create_logger(args):
   # same for logging directory
   seed = str(arg_dict.pop("seed"))
   logdir = str(arg_dict.pop('logdir'))
-  env_name = str(arg_dict.pop('env_name'))
+  env_name = str(arg_dict.pop('env'))
 
   # get a unique hash for the hyperparameter settings, truncated at 10 chars
   arg_hash   = hashlib.md5(str(arg_dict).encode('ascii')).hexdigest()[0:6] + '-seed' + seed

@@ -355,7 +355,7 @@ def run_experiment(args):
     locale.setlocale(locale.LC_ALL, '')
 
     # wrapper function for creating parallelized envs
-    env_fn = env_factory(args.env_name)
+    env_fn = env_factory(args.env)
     obs_dim = env_fn().observation_space.shape[0]
     action_dim = env_fn().action_space.shape[0]
 
@@ -366,10 +366,10 @@ def run_experiment(args):
     std = torch.ones(action_dim)*args.std
 
     if args.recurrent:
-      policy = LSTM_Stochastic_Actor(obs_dim, action_dim, env_name=args.env_name, fixed_std=std, bounded=False)
+      policy = LSTM_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False)
       critic = LSTM_V(obs_dim)
     else:
-      policy = FF_Stochastic_Actor(obs_dim, action_dim, env_name=args.env_name, fixed_std=std, bounded=False)
+      policy = FF_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False)
       critic = FF_V(obs_dim)
 
     env = env_fn()
@@ -395,7 +395,7 @@ def run_experiment(args):
     print()
     print("Proximal Policy Optimization:")
     print("\tseed:               {}".format(args.seed))
-    print("\tenv:                {}".format(args.env_name))
+    print("\tenv:                {}".format(args.env))
     print("\ttimesteps:          {:n}".format(int(args.timesteps)))
     print("\titeration steps:    {:n}".format(int(args.num_steps)))
     print("\tprenormalize steps: {}".format(int(args.prenormalize_steps)))
@@ -431,9 +431,9 @@ def run_experiment(args):
           torch.save(algo.critic, args.save_critic)
 
       if logger is not None:
-        logger.add_scalar(args.env_name + '/kl', kl, timesteps)
-        logger.add_scalar(args.env_name + '/return', eval_reward, timesteps)
-        logger.add_scalar(args.env_name + '/actor loss', a_loss, timesteps)
-        logger.add_scalar(args.env_name + '/critic loss', c_loss, timesteps)
+        logger.add_scalar(args.env + '/kl', kl, timesteps)
+        logger.add_scalar(args.env + '/return', eval_reward, timesteps)
+        logger.add_scalar(args.env + '/actor loss', a_loss, timesteps)
+        logger.add_scalar(args.env + '/critic loss', c_loss, timesteps)
       itr += 1
     print("Finished ({} of {}).".format(timesteps, args.timesteps))

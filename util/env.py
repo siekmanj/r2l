@@ -19,7 +19,8 @@ def env_factory(path, verbose=False, **kwargs):
     if 'cassie' in path.lower():
       if not os.path.isdir('cassie'):
         print("You appear to be missing a './cassie' directory.")
-        print("You can clone the cassie environment repository from https://github.com/siekmanj/cassie.")
+        print("You can clone the cassie environment repository with:")
+        print("git clone https://github.com/siekmanj/cassie")
         exit(1)
 
       from cassie.cassie import CassieEnv_v2

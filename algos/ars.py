@@ -161,7 +161,7 @@ def run_experiment(args):
   import os
 
   # wrapper function for creating parallelized envs
-  env_thunk = env_factory(args.env_name)
+  env_thunk = env_factory(args.env)
   obs_space = env_thunk().observation_space.shape[0]
   act_space = env_thunk().action_space.shape[0]
 
@@ -204,7 +204,7 @@ def run_experiment(args):
   locale.setlocale(locale.LC_ALL, '')
 
   print("Augmented Random Search:")
-  print("\tenv:          {}".format(args.env_name))
+  print("\tenv:          {}".format(args.env))
   print("\tseed:         {}".format(args.seed))
   print("\ttimesteps:    {:n}".format(args.timesteps))
   print("\tstd:          {}".format(args.std))
@@ -266,6 +266,6 @@ def run_experiment(args):
             end="\r")
     i += 1
 
-    #logger.add_scalar(args.env_name + '/return', iter_reward, timesteps)
-    logger.add_scalar(args.env_name + '/return', iter_reward, i)
+    #logger.add_scalar(args.env + '/return', iter_reward, timesteps)
+    logger.add_scalar(args.env + '/return', iter_reward, i)
     torch.save(algo.policy, args.save_model)

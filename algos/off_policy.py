@@ -120,7 +120,7 @@ def run_experiment(args):
   locale.setlocale(locale.LC_ALL, '')
 
   # wrapper function for creating parallelized envs
-  env = env_factory(args.env_name)()
+  env = env_factory(args.env)()
 
   random.seed(args.seed)
   np.random.seed(args.seed)
@@ -135,21 +135,21 @@ def run_experiment(args):
 
   if args.recurrent:
     print('Recurrent ', end='')
-    q1 = LSTM_Q(obs_space, act_space, env_name=args.env_name)
-    q2 = LSTM_Q(obs_space, act_space, env_name=args.env_name)
+    q1 = LSTM_Q(obs_space, act_space, env_name=args.env)
+    q2 = LSTM_Q(obs_space, act_space, env_name=args.env)
 
     if args.algo == 'sac':
-      actor = LSTM_Stochastic_Actor(obs_space, act_space, env_name=args.env_name, bounded=True)
+      actor = LSTM_Stochastic_Actor(obs_space, act_space, env_name=args.env, bounded=True)
     else:
-      actor = LSTM_Actor(obs_space, act_space, env_name=args.env_name)
+      actor = LSTM_Actor(obs_space, act_space, env_name=args.env)
   else:
-    q1 = FF_Q(obs_space, act_space, env_name=args.env_name)
-    q2 = FF_Q(obs_space, act_space, env_name=args.env_name)
+    q1 = FF_Q(obs_space, act_space, env_name=args.env)
+    q2 = FF_Q(obs_space, act_space, env_name=args.env)
 
     if args.algo == 'sac':
-      actor = FF_Stochastic_Actor(obs_space, act_space, env_name=args.env_name, bounded=True)
+      actor = FF_Stochastic_Actor(obs_space, act_space, env_name=args.env, bounded=True)
     else:
-      actor = FF_Actor(obs_space, act_space, env_name=args.env_name)
+      actor = FF_Actor(obs_space, act_space, env_name=args.env)
 
   if args.algo == 'sac':
     print('Soft Actor-Critic')
@@ -161,7 +161,7 @@ def run_experiment(args):
     print('Deep Deterministic Policy Gradient')
     algo = DDPG(actor, q1, args)
 
-  print("\tenv:            {}".format(args.env_name))
+  print("\tenv:            {}".format(args.env))
   print("\tseed:           {}".format(args.seed))
   print("\ttimesteps:      {:n}".format(args.timesteps))
   print("\tactor_lr:       {}".format(args.a_lr))
@@ -228,13 +228,13 @@ def run_experiment(args):
       critic_loss = np.mean([loss[1] for loss in losses])
       update_steps = sum([loss[-1] for loss in losses])
 
-      logger.add_scalar(args.env_name + '/actor loss', actor_loss, timesteps - args.start_timesteps)
-      logger.add_scalar(args.env_name + '/critic loss', critic_loss, timesteps - args.start_timesteps)
-      logger.add_scalar(args.env_name + '/update steps', update_steps, timesteps - args.start_timesteps)
+      logger.add_scalar(args.env + '/actor loss', actor_loss, timesteps - args.start_timesteps)
+      logger.add_scalar(args.env + '/critic loss', critic_loss, timesteps - args.start_timesteps)
+      logger.add_scalar(args.env + '/update steps', update_steps, timesteps - args.start_timesteps)
 
       if args.algo == 'sac':
         alpha_loss = np.mean([loss[2] for loss in losses])
-        logger.add_scalar(args.env_name + '/alpha loss', alpha_loss, timesteps - args.start_timesteps)
+        logger.add_scalar(args.env + '/alpha loss', alpha_loss, timesteps - args.start_timesteps)
 
       completion = 1 - float(timesteps) / args.timesteps
       avg_sample_r = (time.time() - training_start)/timesteps
@@ -244,7 +244,7 @@ def run_experiment(args):
 
       if iter % args.eval_every == 0 and iter != 0:
         eval_reward = eval_policy(algo.actor, min_timesteps=1000, verbose=False, visualize=False, max_traj_len=args.traj_len)
-        logger.add_scalar(args.env_name + '/return', eval_reward, timesteps - args.start_timesteps)
+        logger.add_scalar(args.env + '/return', eval_reward, timesteps - args.start_timesteps)
 
         print("evaluation after {:4d} episodes | return: {:7.3f} | timesteps {:9n}{:100s}".format(iter, eval_reward, timesteps - args.start_timesteps, ''))
         if best_reward is None or eval_reward > best_reward:
