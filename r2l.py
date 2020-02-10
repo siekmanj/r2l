@@ -10,14 +10,45 @@ from util.logo import print_logo
 if __name__ == "__main__":
   import sys, argparse, time, os
   parser = argparse.ArgumentParser()
-  parser.add_argument("--nolog",      action='store_true')
-
   print_logo(subtitle="Recurrent Reinforcement Learning for Robotics.")
 
   if len(sys.argv) < 2:
-    print("Usage: python apex.py [algorithm name]", sys.argv)
+    print("Usage: python apex.py [option]", sys.argv)
+    exit(1)
 
-  elif sys.argv[1] == 'ars':
+  if sys.argv[1] == 'eval':
+    sys.argv.remove(sys.argv[1])
+
+    parser.add_argument("--policy", default="./trained_models/ddpg/ddpg_actor.pt", type=str)
+    parser.add_argument("--env",      default=None, type=str)
+    parser.add_argument("--traj_len", default=400, type=int)
+    args = parser.parse_args()
+
+    policy = torch.load(args.policy)
+
+    eval_policy(policy, min_timesteps=100000, env=args.env, max_traj_len=args.traj_len)
+    exit()
+
+  elif sys.argv[1] == 'cassie':
+    sys.argv.remove(sys.argv[1])
+    from cassie.udp import run_udp
+
+    parser.add_argument("--policy", "-p", default=None, type=str)
+    args = parser.parse_args()
+
+    run_udp(args)
+    exit()
+
+  # Options common to all algorithms.
+  parser.add_argument("--nolog",                  action='store_true')              # store log data or not.
+  parser.add_argument("--recurrent",      "-r",   action='store_true')              # whether to use a recurrent policy
+  parser.add_argument("--seed",           "-s",   default=0,           type=int)
+  parser.add_argument("--traj_len",       "-tl",  default=1000,        type=int)    # max trajectory length for environment
+  parser.add_argument("--env",            "-e",   default="Hopper-v3", type=str)
+  parser.add_argument("--layers",                 default="256,256",   type=str)
+  parser.add_argument("--timesteps",      "-t",   default=1e6,         type=float)  # timesteps to run experiment for
+
+  if sys.argv[1] == 'ars':
     """
       Utility for running Augmented Random Search.
 
@@ -25,23 +56,18 @@ if __name__ == "__main__":
     from algos.ars import run_experiment
     sys.argv.remove(sys.argv[1])
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--hidden_size",          default=32, type=int)                 # neurons in hidden layer
-    parser.add_argument("--timesteps",    "-t",   default=1e8, type=float)                # timesteps to run experiment ofr
     parser.add_argument("--load_model",   "-l",   default=None, type=str)               # load a model from a saved file.
     parser.add_argument('--std',          "-sd",  default=0.0075, type=float)           # the standard deviation of the parameter noise vectors
     parser.add_argument("--deltas",       "-d",   default=64, type=int)                 # number of parameter noise vectors to use
     parser.add_argument("--lr",           "-lr",  default=0.01, type=float)             # the learning rate used to update policy
     parser.add_argument("--reward_shift", "-rs",  default=1, type=float)                # the reward shift (to counter Gym's alive_bonus)
-    parser.add_argument("--traj_len",     "-tl",  default=1000, type=int)               # max trajectory length for environment
     parser.add_argument("--algo",         "-a",   default='v1', type=str)               # whether to use ars v1 or v2
     parser.add_argument("--normalize"     '-n',   action='store_true')                  # normalize states online
-    parser.add_argument("--recurrent",    "-r",   action='store_true')                  # whether to use a recurrent policy
-    parser.add_argument("--logdir",               default="./logs/ars/", type=str)
-    parser.add_argument("--seed",     "-s",       default=0, type=int)
-    parser.add_argument("--env", "-e",            default="Hopper-v3")
     parser.add_argument("--average_every",        default=10, type=int)
     parser.add_argument("--save_model",   "-m",   default=None, type=str)               # where to save the trained model to
     parser.add_argument("--redis",                default=None)
+
+    parser.add_argument("--logdir",               default="./logs/ars/", type=str)
     args = parser.parse_args()
     run_experiment(args)
 
@@ -60,8 +86,6 @@ if __name__ == "__main__":
     parser.add_argument('--tau',                    default=0.01, type=float)     # update factor for target networks
     parser.add_argument("--a_lr",           "-alr", default=1e-5,  type=float)    # adam learning rate for critic
     parser.add_argument("--c_lr",           "-clr", default=1e-4,  type=float)    # adam learning rate for actor
-    parser.add_argument("--traj_len",       "-tl",  default=1000,  type=int)      # max trajectory length for environment
-    parser.add_argument("--center_reward",  "-r",   action='store_true')          # normalize rewards to a normal distribution
     parser.add_argument("--normc_init",             default=True,  type=bool)     # using col norm to init weights
     parser.add_argument("--normalize"       '-n',   action='store_true')          # normalize states online
     parser.add_argument("--batch_size",             default=64,    type=int)      # batch size for policy update
@@ -69,13 +93,10 @@ if __name__ == "__main__":
     parser.add_argument("--eval_every",             default=100,   type=int)      # how often to evaluate the trained policy
     parser.add_argument("--save_actor",             default=None, type=str)
     parser.add_argument("--save_critic",            default=None, type=str)
-    parser.add_argument("--recurrent",              action='store_true')
     parser.add_argument("--prenormalize_steps",     default=10000,         type=int)      
 
     parser.add_argument("--logdir",                 default="./logs/ddpg/", type=str)
 
-    parser.add_argument("--seed",     "-s",   default=0, type=int)
-    parser.add_argument("--env",      "-e",   default="Hopper-v3")
     args = parser.parse_args()
     args.algo = 'ddpg'
 
@@ -100,7 +121,6 @@ if __name__ == "__main__":
     parser.add_argument('--tau',                    default=0.005, type=float)    # update factor for target networks
     parser.add_argument("--a_lr",           "-alr", default=3e-4,  type=float)    # adam learning rate for critic
     parser.add_argument("--c_lr",           "-clr", default=3e-4,  type=float)    # adam learning rate for actor
-    parser.add_argument("--traj_len",       "-tl",  default=1000,  type=int)      # max trajectory length for environment
     parser.add_argument("--center_reward",  "-r",   action='store_true')          # normalize rewards to a normal distribution
     parser.add_argument("--batch_size",             default=256,    type=int)     # batch size for policy update
     parser.add_argument("--updates",                default=1,    type=int)       # (if recurrent) number of times to update policy per episode
@@ -108,12 +128,9 @@ if __name__ == "__main__":
     parser.add_argument("--eval_every",             default=100,   type=int)      # how often to evaluate the trained policy
     parser.add_argument("--save_actor",             default=None, type=str)
     #parser.add_argument("--save_critics",           default=None, type=str)
-    parser.add_argument("--logdir",                 default="./logs/td3/", type=str)
-    parser.add_argument("--recurrent",              action='store_true') 
     parser.add_argument("--prenormalize_steps",     default=10000,         type=int)      
 
-    parser.add_argument("--seed",     "-s",   default=0, type=int)
-    parser.add_argument("--env",      "-e",   default="Hopper-v3")
+    parser.add_argument("--logdir",                 default="./logs/td3/", type=str)
     args = parser.parse_args()
     args.algo      = 'td3'
 
@@ -126,13 +143,9 @@ if __name__ == "__main__":
 
     """
     from algos.ppo import run_experiment
-    parser.add_argument("--seed",                   default=0,             type=int)      # number of timesteps to run experiment for
     parser.add_argument("--timesteps",       "-t",  default=1e6,           type=float)      # number of timesteps to run experiment for
-    parser.add_argument("--env",                    default='Hopper-v3',   type=str)
-    parser.add_argument("--traj_len",       "-tl",  default=400,           type=int)      # max trajectory length for environment
     parser.add_argument("--prenormalize_steps",     default=10000,         type=int)      
     parser.add_argument("--num_steps",              default=5000,          type=int)      
-    parser.add_argument("--recurrent",              action='store_true')
 
     parser.add_argument('--discount',               default=0.99,          type=float)    # the discount factor
     parser.add_argument('--std',                    default=0.13,          type=float)    # the fixed exploration std
@@ -147,11 +160,11 @@ if __name__ == "__main__":
 
     parser.add_argument("--save_actor",             default=None,          type=str)
     parser.add_argument("--save_critic",            default=None,          type=str)
-    parser.add_argument("--logdir",                 default="./logs/ppo/", type=str)
     parser.add_argument("--workers",                default=4,             type=int)
     parser.add_argument("--redis",                  default=None,          type=str)
     args = parser.parse_args()
 
+    parser.add_argument("--logdir",                 default="./logs/ppo/", type=str)
     run_experiment(args)
 
   elif sys.argv[1] == 'sac':
@@ -161,13 +174,9 @@ if __name__ == "__main__":
 
     """
     from algos.off_policy import run_experiment
-    parser.add_argument("--seed",                   default=0,             type=int)      # number of timesteps to run experiment for
     parser.add_argument("--timesteps",       "-t",  default=1e6,           type=float)      # number of timesteps to run experiment for
-    parser.add_argument("--env",                    default='Hopper-v3',   type=str)
-    parser.add_argument("--traj_len",       "-tl",  default=400,           type=int)      # max trajectory length for environment
     parser.add_argument("--start_timesteps",        default=10000,         type=int)      
     parser.add_argument("--eval_every",             default=100,             type=int) 
-    parser.add_argument("--recurrent",              action='store_true')
 
     parser.add_argument('--discount',               default=0.99,          type=float)    # the discount factor
     parser.add_argument('--tau',                    default=1e-2,          type=float)
@@ -187,25 +196,5 @@ if __name__ == "__main__":
 
     run_experiment(args)
 
-  elif sys.argv[1] == 'eval':
-    sys.argv.remove(sys.argv[1])
-
-    parser.add_argument("--policy", default="./trained_models/ddpg/ddpg_actor.pt", type=str)
-    parser.add_argument("--env",      default=None, type=str)
-    parser.add_argument("--traj_len", default=400, type=int)
-    args = parser.parse_args()
-
-    policy = torch.load(args.policy)
-
-    eval_policy(policy, min_timesteps=100000, env=args.env, max_traj_len=args.traj_len)
-
-  elif sys.argv[1] == 'cassie':
-    sys.argv.remove(sys.argv[1])
-    from cassie.udp import run_udp
-
-    parser.add_argument("--policy", "-p", default=None, type=str)
-    args = parser.parse_args()
-
-    run_udp(args)
   else:
     print("Invalid option '{}'".format(sys.argv[1]))

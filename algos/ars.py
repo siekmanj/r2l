@@ -165,6 +165,8 @@ def run_experiment(args):
   obs_space = env_thunk().observation_space.shape[0]
   act_space = env_thunk().action_space.shape[0]
 
+  layers = [int(x) for x in args.layers.split(',')]
+
   # wrapper function for creating parallelized policies
   def policy_thunk():
     from policies.actor import FF_Actor, LSTM_Actor, Linear_Actor
@@ -172,9 +174,9 @@ def run_experiment(args):
       return torch.load(args.load_model)
     else:
       if not args.recurrent:
-        policy = Linear_Actor(obs_space, act_space, hidden_size=args.hidden_size).float()
+        policy = Linear_Actor(obs_space, act_space, layers=layers).float()
       else:
-        policy = LSTM_Actor(obs_space, act_space, layers=(hidden_size)).float()
+        policy = LSTM_Actor(obs_space, act_space, layers=layers).float()
 
       # policy parameters should be zero initialized according to ARS paper
       for p in policy.parameters():

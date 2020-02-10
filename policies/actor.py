@@ -17,11 +17,14 @@ class Actor(Net):
     raise NotImplementedError
 
 class Linear_Actor(Actor):
-  def __init__(self, state_dim, action_dim, hidden_size=32):
+  def __init__(self, state_dim, action_dim, layers=(64)):
     super(Linear_Actor, self).__init__()
 
-    self.l1 = nn.Linear(state_dim, hidden_size)
-    self.l2 = nn.Linear(hidden_size, action_dim)
+    self.actor_layers = nn.ModuleList()
+    self.actor_layers += [nn.Linear(state_dim, layers[0])]
+    for i in range(len(layers)-1):
+        self.actor_layers += [nn.Linear(layers[i], layers[i+1])]
+    self.network_out = nn.Linear(layers[-1], action_dim)
 
     self.action_dim = action_dim
 
@@ -29,10 +32,11 @@ class Linear_Actor(Actor):
       p.data = torch.zeros(p.shape)
 
   def forward(self, state):
-    a = self.l1(state)
-    a = self.l2(a)
-    self.action = a
-    return a
+    x = state
+    for layer in self.actor_layers:
+      x = layer(x)
+    self.action = self.network_out(x)
+    return self.action
 
   def get_action(self):
     return self.action

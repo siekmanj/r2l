@@ -133,23 +133,25 @@ def run_experiment(args):
 
   replay_buff = ReplayBuffer(obs_space, act_space, args.timesteps)
 
+  layers = [int(x) for x in args.layers.split(',')]
+
   if args.recurrent:
     print('Recurrent ', end='')
-    q1 = LSTM_Q(obs_space, act_space, env_name=args.env)
-    q2 = LSTM_Q(obs_space, act_space, env_name=args.env)
+    q1 = LSTM_Q(obs_space, act_space, env_name=args.env, layers=layers)
+    q2 = LSTM_Q(obs_space, act_space, env_name=args.env, layers=layers)
 
     if args.algo == 'sac':
-      actor = LSTM_Stochastic_Actor(obs_space, act_space, env_name=args.env, bounded=True)
+      actor = LSTM_Stochastic_Actor(obs_space, act_space, env_name=args.env, bounded=True, layers=layers)
     else:
-      actor = LSTM_Actor(obs_space, act_space, env_name=args.env)
+      actor = LSTM_Actor(obs_space, act_space, env_name=args.env, layers=layers)
   else:
-    q1 = FF_Q(obs_space, act_space, env_name=args.env)
-    q2 = FF_Q(obs_space, act_space, env_name=args.env)
+    q1 = FF_Q(obs_space, act_space, env_name=args.env, layers=layers)
+    q2 = FF_Q(obs_space, act_space, env_name=args.env, layers=layers)
 
     if args.algo == 'sac':
-      actor = FF_Stochastic_Actor(obs_space, act_space, env_name=args.env, bounded=True)
+      actor = FF_Stochastic_Actor(obs_space, act_space, env_name=args.env, bounded=True, layers=layers)
     else:
-      actor = FF_Actor(obs_space, act_space, env_name=args.env)
+      actor = FF_Actor(obs_space, act_space, env_name=args.env, layers=layers)
 
   if args.algo == 'sac':
     print('Soft Actor-Critic')

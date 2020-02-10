@@ -365,12 +365,14 @@ def run_experiment(args):
 
     std = torch.ones(action_dim)*args.std
 
+    layers = [int(x) for x in args.layers.split(',')]
+
     if args.recurrent:
-      policy = LSTM_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False)
-      critic = LSTM_V(obs_dim)
+      policy = LSTM_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
+      critic = LSTM_V(obs_dim, layers=layers)
     else:
-      policy = FF_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False)
-      critic = FF_V(obs_dim)
+      policy = FF_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
+      critic = FF_V(obs_dim, layers=layers)
 
     env = env_fn()
     eval_policy(policy, env, True, min_timesteps=args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
