@@ -159,9 +159,10 @@ if __name__ == "__main__":
     parser.add_argument("--save_critic",            default=None,          type=str)
     parser.add_argument("--workers",                default=4,             type=int)
     parser.add_argument("--redis",                  default=None,          type=str)
-    args = parser.parse_args()
 
     parser.add_argument("--logdir",                 default="./logs/ppo/", type=str)
+    args = parser.parse_args()
+
     run_experiment(args)
 
   elif sys.argv[1] == 'sac':
