@@ -22,7 +22,7 @@ def env_factory(path, verbose=False, **kwargs):
         print("You can clone the cassie environment repository from https://github.com/siekmanj/cassie.")
         exit(1)
 
-      from cassie import CassieEnv_v2
+      from cassie.cassie import CassieEnv_v2
       path = path.lower()
 
       if 'random_dynamics' in path or 'dynamics_random' in path or 'randomdynamics' in path or 'dynamicsrandom' in path:
