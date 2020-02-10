@@ -10,12 +10,12 @@ This repo contains recurrent implementations of state-of-the-art RL algorithms. 
 ## Running experiments
 
 ### Basics
-Any algorithm can be run from the rll.py entry point.
+Any algorithm can be run from the r2l.py entry point.
 
 To run recurrent PPO on Walker2d-v2,
 
 ```bash
-python rll.py ppo --env_name Walker2d-v2 --recurrent
+python r2l.py ppo --env_name Walker2d-v2 --recurrent
 ```
 
 ### Logging details / Monitoring live training progress
