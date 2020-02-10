@@ -147,7 +147,7 @@ class LSTM_Actor(Actor):
     self.actor_layers += [nn.LSTMCell(input_dim, layers[0])]
     for i in range(len(layers)-1):
         self.actor_layers += [nn.LSTMCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[i-1], action_dim)
+    self.network_out = nn.Linear(layers[-1], action_dim)
 
     self.action = None
     self.action_dim = action_dim
@@ -216,7 +216,7 @@ class LSTM_Stochastic_Actor(Actor):
     self.actor_layers += [nn.LSTMCell(state_dim, layers[0])]
     for i in range(len(layers)-1):
         self.actor_layers += [nn.LSTMCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[i-1], action_dim)
+    self.network_out = nn.Linear(layers[-1], action_dim)
 
     self.action = None
     self.action_dim = action_dim
