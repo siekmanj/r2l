@@ -77,7 +77,6 @@ if __name__ == "__main__":
       Utility for running Recurrent/Deep Deterministic Policy Gradients.
     """
     from algos.off_policy import run_experiment
-    parser.add_argument("--timesteps",       "-t",  default=1e6,   type=float)      # number of timesteps in replay buffer
     parser.add_argument("--start_timesteps",        default=1e4,   type=int)      # number of timesteps to generate random actions for
     parser.add_argument("--load_actor",             default=None,  type=str)      # load an actor from a .pt file
     parser.add_argument("--load_critic",            default=None,  type=str)      # load a critic from a .pt file
@@ -110,7 +109,6 @@ if __name__ == "__main__":
 
     """
     from algos.off_policy import run_experiment
-    parser.add_argument("--timesteps",       "-t",  default=1e6,   type=float)    # number of timesteps in replay buffer
     parser.add_argument("--start_timesteps",        default=1e4,   type=float)      # number of timesteps to generate random actions for
     parser.add_argument("--load_actor",             default=None,  type=str)      # load an actor from a .pt file
     parser.add_argument('--discount',               default=0.99,  type=float)    # the discount factor
@@ -143,7 +141,6 @@ if __name__ == "__main__":
 
     """
     from algos.ppo import run_experiment
-    parser.add_argument("--timesteps",       "-t",  default=1e6,           type=float)      # number of timesteps to run experiment for
     parser.add_argument("--prenormalize_steps",     default=10000,         type=int)      
     parser.add_argument("--num_steps",              default=5000,          type=int)      
 
@@ -174,7 +171,6 @@ if __name__ == "__main__":
 
     """
     from algos.off_policy import run_experiment
-    parser.add_argument("--timesteps",       "-t",  default=1e6,           type=float)      # number of timesteps to run experiment for
     parser.add_argument("--start_timesteps",        default=10000,         type=int)      
     parser.add_argument("--eval_every",             default=100,             type=int) 
 
