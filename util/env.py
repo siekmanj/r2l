@@ -77,7 +77,7 @@ def env_factory(path, verbose=False, **kwargs):
 
     return partial(cls, **_kwargs)
 
-def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, env=None, verbose=True, update_normalizer=False):
+def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, env=None, verbose=True):
   env_name = env
   with torch.no_grad():
     if env_name is None:
@@ -102,10 +102,10 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         policy.init_hidden_state()
 
       while not done and timesteps < max_traj_len:
-        if hasattr(env, 'simrate') and visualize:
+        if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
 
-        state = policy.normalize_state(state, update=update_normalizer)
+        state = policy.normalize_state(state, update=False)
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
         if visualize:
@@ -114,11 +114,18 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         timesteps += 1
         total_t += 1
 
-        if hasattr(env, 'simrate') and visualize:
-          # assume 30hz (hack)
-          end = time.time()
-          delaytime = max(0, 1000 / 30000 - (end-start))
-          time.sleep(delaytime)
+        if visualize:
+          if hasattr(env, 'simrate'):
+            # assume 30hz (hack)
+            end = time.time()
+            delaytime = max(0, 1000 / 30000 - (end-start))
+            time.sleep(delaytime)
+
+          if hasattr(env, 'dt'):
+            while time.time() - start < env.dt:
+              time.sleep(0.0005)
+              #print("dt: {}, rt: {}".format(env.dt, end - start))
+              #input()
 
       reward_sum += eval_reward
       if verbose:

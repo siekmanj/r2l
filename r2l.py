@@ -21,7 +21,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--policy", default="./trained_models/ddpg/ddpg_actor.pt", type=str)
     parser.add_argument("--env",      default=None, type=str)
-    parser.add_argument("--traj_len", default=400, type=int)
+    parser.add_argument("--traj_len", default=1000, type=int)
     args = parser.parse_args()
 
     policy = torch.load(args.policy)
