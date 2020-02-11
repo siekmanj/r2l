@@ -29,7 +29,7 @@ if __name__ == "__main__":
     eval_policy(policy, min_timesteps=100000, env=args.env, max_traj_len=args.traj_len)
     exit()
 
-  elif sys.argv[1] == 'cassie':
+  if sys.argv[1] == 'cassie':
     sys.argv.remove(sys.argv[1])
     from cassie.udp import run_udp
 
@@ -39,13 +39,28 @@ if __name__ == "__main__":
     run_udp(args)
     exit()
 
-  # Options common to all algorithms.
+  # Utility for running QBN insertion.
+  if sys.argv[1] == 'qbn':
+    sys.argv.remove(sys.argv[1])
+    from algos.qbn import run_experiment
+
+    parser.add_argument("--nolog",        action='store_true')             # store log data or not.
+    parser.add_argument("--seed", "-s",   default=0,          type=int)    # random seed for reproducibility
+    parser.add_argument("--policy", "-p", default=None,       type=str)
+    parser.add_argument("--data",         default=None,       type=str)
+    parser.add_argument("--workers",      default=4,          type=int)
+    parser.add_argument("--logdir",       default='logs/qbn', type=str)
+    args = parser.parse_args()
+    run_experiment(args)
+    exit()
+
+  # Options common to all RL algorithms.
   parser.add_argument("--nolog",                  action='store_true')              # store log data or not.
   parser.add_argument("--recurrent",      "-r",   action='store_true')              # whether to use a recurrent policy
-  parser.add_argument("--seed",           "-s",   default=0,           type=int)
+  parser.add_argument("--seed",           "-s",   default=0,           type=int)    # random seed for reproducibility
   parser.add_argument("--traj_len",       "-tl",  default=1000,        type=int)    # max trajectory length for environment
-  parser.add_argument("--env",            "-e",   default="Hopper-v3", type=str)
-  parser.add_argument("--layers",                 default="256,256",   type=str)
+  parser.add_argument("--env",            "-e",   default="Hopper-v3", type=str)    # environment to train on
+  parser.add_argument("--layers",                 default="256,256",   type=str)    # hidden layer sizes in policy
   parser.add_argument("--timesteps",      "-t",   default=1e6,         type=float)  # timesteps to run experiment for
 
   if sys.argv[1] == 'ars':

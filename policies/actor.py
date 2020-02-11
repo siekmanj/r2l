@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torch import sqrt
-
 from policies.base import Net
 
 class Actor(Net):
@@ -11,9 +9,6 @@ class Actor(Net):
     super(Actor, self).__init__()
 
   def forward(self):
-    raise NotImplementedError
-
-  def get_action(self):
     raise NotImplementedError
 
 class Linear_Actor(Actor):
@@ -35,11 +30,8 @@ class Linear_Actor(Actor):
     x = state
     for layer in self.actor_layers:
       x = layer(x)
-    self.action = self.network_out(x)
-    return self.action
-
-  def get_action(self):
-    return self.action
+    action = self.network_out(x)
+    return action
 
 class FF_Actor(Actor):
   def __init__(self, state_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh, normc_init=False, max_action=1):
@@ -51,7 +43,6 @@ class FF_Actor(Actor):
         self.actor_layers += [nn.Linear(layers[i], layers[i+1])]
     self.network_out = nn.Linear(layers[-1], action_dim)
 
-    self.action = None
     self.action_dim = action_dim
     self.env_name = env_name
     self.nonlinearity = nonlinearity
@@ -65,11 +56,8 @@ class FF_Actor(Actor):
     for idx, layer in enumerate(self.actor_layers):
       x = self.nonlinearity(layer(x))
 
-    self.action = torch.tanh(self.network_out(x))
-    return self.action
-
-  def get_action(self):
-    return self.action
+    action = torch.tanh(self.network_out(x))
+    return action
 
 class FF_Stochastic_Actor(Actor):
   def __init__(self, state_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh, normc_init=True, bounded=False, fixed_std=None):
@@ -88,7 +76,6 @@ class FF_Stochastic_Actor(Actor):
       self.fixed_std = fixed_std
       self.learn_std = False
 
-    self.action = None
     self.action_dim = action_dim
     self.env_name = env_name
     self.nonlinearity = nonlinearity
@@ -119,25 +106,22 @@ class FF_Stochastic_Actor(Actor):
       sample = dist.rsample()
 
     if self.bounded:
-      self.action = torch.tanh(mu) if deterministic else torch.tanh(sample)
+      action = torch.tanh(mu) if deterministic else torch.tanh(sample)
     else:
-      self.action = mu if deterministic else sample
+      action = mu if deterministic else sample
 
     if return_log_probs:
       log_prob = dist.log_prob(sample)
       if self.bounded:
         log_prob -= torch.log((1 - torch.tanh(sample).pow(2)) + 1e-6)
 
-      return self.action, log_prob.sum(1, keepdim=True)
+      return action, log_prob.sum(1, keepdim=True)
     else:
-      return self.action
+      return action
 
   def pdf(self, state):
     mu, sd = self._get_dist_params(state)
     return torch.distributions.Normal(mu, sd)
-
-  def get_action(self):
-    return self.action
 
 class LSTM_Actor(Actor):
   def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None, nonlinearity=torch.tanh, normc_init=False, bounded=False):
@@ -149,7 +133,6 @@ class LSTM_Actor(Actor):
         self.actor_layers += [nn.LSTMCell(layers[i], layers[i+1])]
     self.network_out = nn.Linear(layers[-1], action_dim)
 
-    self.action = None
     self.action_dim = action_dim
     self.init_hidden_state()
     self.env_name = env_name
@@ -201,11 +184,8 @@ class LSTM_Actor(Actor):
       if dims == 1:
         x = x.view(-1)
 
-    self.action = self.network_out(x)
-    return self.action
-  
-  def get_action(self):
-    return self.action
+    action = self.network_out(x)
+    return action
 
 class LSTM_Stochastic_Actor(Actor):
   def __init__(self, state_dim, action_dim, layers=(128, 128), env_name=None, normc_init=False, bounded=False, fixed_std=None):
@@ -217,7 +197,6 @@ class LSTM_Stochastic_Actor(Actor):
         self.actor_layers += [nn.LSTMCell(layers[i], layers[i+1])]
     self.network_out = nn.Linear(layers[-1], action_dim)
 
-    self.action = None
     self.action_dim = action_dim
     self.init_hidden_state()
     self.env_name = env_name
@@ -233,6 +212,10 @@ class LSTM_Stochastic_Actor(Actor):
 
     if normc_init:
       self.initialize_parameters()
+
+  def get_hidden_state(self):
+    return self.hidden, self.cells
+
 
   def _get_dist_params(self, state):
     dims = len(state.size())
@@ -282,18 +265,15 @@ class LSTM_Stochastic_Actor(Actor):
       sample = dist.rsample()
 
     if hasattr(self, 'bounded') and self.bounded:
-      self.action = torch.tanh(mu) if deterministic else torch.tanh(sample)
+      action = torch.tanh(mu) if deterministic else torch.tanh(sample)
     else:
-      self.action = mu if deterministic else sample
+      action = mu if deterministic else sample
 
     if return_log_probs:
-      return self.action, dist.log_prob(sample)
+      return action, dist.log_prob(sample)
     else:
-      return self.action
+      return action
 
   def pdf(self, state):
     mu, sd = self._get_dist_params(state)
     return torch.distributions.Normal(mu, sd)
-
-  def get_action(self):
-    return self.action

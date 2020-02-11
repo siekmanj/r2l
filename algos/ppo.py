@@ -1,21 +1,17 @@
 """Proximal Policy Optimization (clip objective)."""
-from copy import deepcopy
 import os
-
+import ray
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
-from torch.distributions import kl_divergence
-
-from torch.nn.utils.rnn import pad_sequence
-
-from time import time
-
+import torch.nn.functional as F
 import numpy as np
 
-import ray
+from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
+from torch.distributions import kl_divergence
+from torch.nn.utils.rnn import pad_sequence
+from copy import deepcopy
+from time import time
 
 class Buffer:
   def __init__(self, discount=0.99):
@@ -343,99 +339,99 @@ def eval_policy(policy, env, update_normalizer, min_timesteps=2000, max_traj_len
   
 
 def run_experiment(args):
-    torch.set_num_threads(1)
+  torch.set_num_threads(1)
 
-    from util.env import env_factory
-    from util.log import create_logger
+  from util.env import env_factory
+  from util.log import create_logger
 
-    from policies.critic import FF_V, LSTM_V
-    from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor
+  from policies.critic import FF_V, LSTM_V
+  from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor
 
-    import locale, os
-    locale.setlocale(locale.LC_ALL, '')
+  import locale, os
+  locale.setlocale(locale.LC_ALL, '')
 
-    # wrapper function for creating parallelized envs
-    env_fn = env_factory(args.env)
-    obs_dim = env_fn().observation_space.shape[0]
-    action_dim = env_fn().action_space.shape[0]
+  # wrapper function for creating parallelized envs
+  env_fn = env_factory(args.env)
+  obs_dim = env_fn().observation_space.shape[0]
+  action_dim = env_fn().action_space.shape[0]
 
-    # Set seeds
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+  # Set seeds
+  torch.manual_seed(args.seed)
+  np.random.seed(args.seed)
 
-    std = torch.ones(action_dim)*args.std
+  std = torch.ones(action_dim)*args.std
 
-    layers = [int(x) for x in args.layers.split(',')]
+  layers = [int(x) for x in args.layers.split(',')]
 
-    if args.recurrent:
-      policy = LSTM_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
-      critic = LSTM_V(obs_dim, layers=layers)
-    else:
-      policy = FF_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
-      critic = FF_V(obs_dim, layers=layers)
+  if args.recurrent:
+    policy = LSTM_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
+    critic = LSTM_V(obs_dim, layers=layers)
+  else:
+    policy = FF_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
+    critic = FF_V(obs_dim, layers=layers)
 
-    env = env_fn()
-    eval_policy(policy, env, True, min_timesteps=args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
+  env = env_fn()
+  eval_policy(policy, env, True, min_timesteps=args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
 
-    policy.train(0)
-    critic.train(0)
+  policy.train(0)
+  critic.train(0)
 
-    algo = PPO(policy, critic, env_fn, args)
+  algo = PPO(policy, critic, env_fn, args)
 
-    # create a tensorboard logging object
-    if not args.nolog:
-      logger = create_logger(args)
-    else:
-      logger = None
+  # create a tensorboard logging object
+  if not args.nolog:
+    logger = create_logger(args)
+  else:
+    logger = None
 
-    if args.save_actor is None and logger is not None:
-      args.save_actor = os.path.join(logger.dir, 'actor.pt')
+  if args.save_actor is None and logger is not None:
+    args.save_actor = os.path.join(logger.dir, 'actor.pt')
 
-    if args.save_critic is None and logger is not None:
-      args.save_critic = os.path.join(logger.dir, 'critic.pt')
+  if args.save_critic is None and logger is not None:
+    args.save_critic = os.path.join(logger.dir, 'critic.pt')
 
-    print()
-    print("Proximal Policy Optimization:")
-    print("\tseed:               {}".format(args.seed))
-    print("\tenv:                {}".format(args.env))
-    print("\ttimesteps:          {:n}".format(int(args.timesteps)))
-    print("\titeration steps:    {:n}".format(int(args.num_steps)))
-    print("\tprenormalize steps: {}".format(int(args.prenormalize_steps)))
-    print("\ttraj_len:           {}".format(args.traj_len))
-    print("\tdiscount:           {}".format(args.discount))
-    print("\tactor_lr:           {}".format(args.a_lr))
-    print("\tcritic_lr:          {}".format(args.c_lr))
-    print("\tadam eps:           {}".format(args.eps))
-    print("\tentropy coeff:      {}".format(args.entropy_coeff))
-    print("\tgrad clip:          {}".format(args.grad_clip))
-    print("\tbatch size:         {}".format(args.batch_size))
-    print("\tepochs:             {}".format(args.epochs))
-    print("\tworkers:            {}".format(args.workers))
-    print()
+  print()
+  print("Proximal Policy Optimization:")
+  print("\tseed:               {}".format(args.seed))
+  print("\tenv:                {}".format(args.env))
+  print("\ttimesteps:          {:n}".format(int(args.timesteps)))
+  print("\titeration steps:    {:n}".format(int(args.num_steps)))
+  print("\tprenormalize steps: {}".format(int(args.prenormalize_steps)))
+  print("\ttraj_len:           {}".format(args.traj_len))
+  print("\tdiscount:           {}".format(args.discount))
+  print("\tactor_lr:           {}".format(args.a_lr))
+  print("\tcritic_lr:          {}".format(args.c_lr))
+  print("\tadam eps:           {}".format(args.eps))
+  print("\tentropy coeff:      {}".format(args.entropy_coeff))
+  print("\tgrad clip:          {}".format(args.grad_clip))
+  print("\tbatch size:         {}".format(args.batch_size))
+  print("\tepochs:             {}".format(args.epochs))
+  print("\tworkers:            {}".format(args.workers))
+  print()
 
-    itr = 0
-    timesteps = 0
-    best_reward = None
-    while timesteps < args.timesteps:
-      kl, a_loss, c_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl)
-      eval_reward = eval_policy(algo.actor, env, False, min_timesteps=args.traj_len*5, max_traj_len=args.traj_len, verbose=False)
+  itr = 0
+  timesteps = 0
+  best_reward = None
+  while timesteps < args.timesteps:
+    kl, a_loss, c_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl)
+    eval_reward = eval_policy(algo.actor, env, False, min_timesteps=args.traj_len*5, max_traj_len=args.traj_len, verbose=False)
 
-      timesteps += steps
-      print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))
+    timesteps += steps
+    print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))
 
-      if best_reward is None or eval_reward > best_reward:
-        print("\t(best policy so far! saving to {})".format(args.save_actor))
-        best_reward = eval_reward
-        if args.save_actor is not None:
-          torch.save(algo.actor, args.save_actor)
-        
-        if args.save_critic is not None:
-          torch.save(algo.critic, args.save_critic)
+    if best_reward is None or eval_reward > best_reward:
+      print("\t(best policy so far! saving to {})".format(args.save_actor))
+      best_reward = eval_reward
+      if args.save_actor is not None:
+        torch.save(algo.actor, args.save_actor)
+      
+      if args.save_critic is not None:
+        torch.save(algo.critic, args.save_critic)
 
-      if logger is not None:
-        logger.add_scalar(args.env + '/kl', kl, timesteps)
-        logger.add_scalar(args.env + '/return', eval_reward, timesteps)
-        logger.add_scalar(args.env + '/actor loss', a_loss, timesteps)
-        logger.add_scalar(args.env + '/critic loss', c_loss, timesteps)
-      itr += 1
-    print("Finished ({} of {}).".format(timesteps, args.timesteps))
+    if logger is not None:
+      logger.add_scalar(args.env + '/kl', kl, timesteps)
+      logger.add_scalar(args.env + '/return', eval_reward, timesteps)
+      logger.add_scalar(args.env + '/actor loss', a_loss, timesteps)
+      logger.add_scalar(args.env + '/critic loss', c_loss, timesteps)
+    itr += 1
+  print("Finished ({} of {}).".format(timesteps, args.timesteps))
