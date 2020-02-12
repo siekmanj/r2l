@@ -99,7 +99,7 @@ def train_lstm_qbn(states, actions, hiddens, cells, epochs=500, batch_size=64):
     epoch_obs_losses = np.mean(epoch_obs_losses)
     epoch_hid_losses = np.mean(epoch_hid_losses)
     epoch_cel_losses = np.mean(epoch_cel_losses)
-    print("{:5.3f} | {:5.3f} | {:5.3f}".format(epoch_obs_loss.item(), epoch_hid_loss.item(), epoch_cel_loss.item()))
+    print("{:5.3f} | {:5.3f} | {:5.3f}".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses))
 
   return obs_qbn, hidden_qbn, cell_qbn
   
