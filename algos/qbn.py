@@ -4,12 +4,14 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 
+from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 from copy import deepcopy
 from policies.autoencoder import QBN
 from util.env import env_factory
 
 @ray.remote
 def collect_data(actor, timesteps, max_traj_len, seed):
+  torch.set_num_threads(1)
   np.random.seed(seed)
   policy = deepcopy(actor)
 
@@ -44,14 +46,63 @@ def collect_data(actor, timesteps, max_traj_len, seed):
         traj_len += 1
         num_steps += 1
 
-    states  = states
-    actions = actions
-    hiddens = hiddens
-    cells   = cells
+    states  = np.array(states)
+    actions = np.array(actions)
+    hiddens = np.array(hiddens)
+    cells   = np.array(cells)
 
-    data = [states, actions, hiddens, cells]
+    return [states, actions, hiddens, cells]
 
-    return data
+def train_lstm_qbn(states, actions, hiddens, cells, epochs=500, batch_size=64):
+  obs_qbn    = QBN(states.shape[-1])
+  hidden_qbn = QBN(hiddens.shape[-1])
+  cell_qbn   = QBN(cells.shape[-1])
+
+  obs_optim = optim.Adam(obs_qbn.parameters(), lr=1e-4, eps=1e-6)
+  hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=1e-4, eps=1e-6)
+  cell_optim = optim.Adam(cell_qbn.parameters(), lr=1e-4, eps=1e-6)
+
+  for epoch in range(epochs):
+    random_indices = SubsetRandomSampler(range(states.shape[0]))
+    sampler = BatchSampler(random_indices, batch_size, drop_last=True)
+
+    epoch_obs_losses = []
+    epoch_hid_losses = []
+    epoch_cel_losses = []
+    for i, batch in enumerate(sampler):
+      batch_states  = states[batch]
+      batch_actions = actions[batch]
+      batch_hiddens = hiddens[batch]
+      batch_cells   = cells[batch]
+
+      obs_loss = 0.5 * (batch_states  - obs_qbn(batch_states)).pow(2).mean()
+      hid_loss = 0.5 * (batch_hiddens - hidden_qbn(batch_hiddens)).pow(2).mean()
+      cel_loss = 0.5 * (batch_cells   - cell_qbn(batch_cells)).pow(2).mean()
+
+      obs_optim.zero_grad()
+      obs_loss.backward()
+      obs_optim.step()
+
+      hidden_optim.zero_grad()
+      hid_loss.backward()
+      hidden_optim.step()
+
+      cell_optim.zero_grad()
+      cel_loss.backward()
+      cell_optim.step()
+
+      epoch_obs_losses.append(obs_loss.item())
+      epoch_hid_losses.append(hid_loss.item())
+      epoch_cel_losses.append(cel_loss.item())
+      print("batch {:3d} / {:3d}".format(i, len(sampler)), end='\r')
+
+    epoch_obs_losses = np.mean(epoch_obs_losses)
+    epoch_hid_losses = np.mean(epoch_hid_losses)
+    epoch_cel_losses = np.mean(epoch_cel_losses)
+    print("{:5.3f} | {:5.3f} | {:5.3f}".format(epoch_obs_loss.item(), epoch_hid_loss.item(), epoch_cel_loss.item()))
+
+  return obs_qbn, hidden_qbn, cell_qbn
+  
 
 def run_experiment(args):
   import locale, os
@@ -86,14 +137,24 @@ def run_experiment(args):
 
   # Generate data for training QBN
   if args.data is None:
+    print("Collecting dataset of size {:n} with {} workers...".format(args.dataset_size, args.workers))
     ray.init()
-    data = np.array(ray.get([collect_data.remote(policy, 1000, 1000, np.random.randint(65536)) for _ in range(args.workers)]))
-    states  = np.vstack(data[:,0])
-    actions = np.vstack(data[:,1])
-    hiddens = np.vstack(data[:,2])
-    cells   = np.vstack(data[:,3])
+    data = ray.get([collect_data.remote(policy, args.dataset_size/args.workers, args.traj_len, np.random.randint(65536)) for _ in range(args.workers)])
+    states  = np.vstack([r[0] for r in data])
+    actions = np.vstack([r[1] for r in data])
+    hiddens = np.vstack([r[2] for r in data])
+    cells   = np.vstack([r[3] for r in data])
 
     data = [states, actions, hiddens, cells]
     if logger is not None:
-      np.savez(os.path.join(logger.dir, 'data.npz'), states=states, actions=actions, hiddens=hiddens, cells=cells)
+      args.data = os.path.join(logger.dir, 'data.npz')
+      np.savez(args.data, states=states, actions=actions, hiddens=hiddens, cells=cells)
+  data = np.load(args.data)
+
+  states  = torch.as_tensor(data['states'])
+  actions = torch.as_tensor(data['actions'])
+  hiddens = torch.as_tensor(data['hiddens'])
+  cells   = torch.as_tensor(data['cells'])
+
+  obs_qbn, hid_qbn, cel_qbn = train_lstm_qbn(states, actions, hiddens, cells)
 

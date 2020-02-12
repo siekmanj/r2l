@@ -45,11 +45,13 @@ if __name__ == "__main__":
     from algos.qbn import run_experiment
 
     parser.add_argument("--nolog",        action='store_true')             # store log data or not.
-    parser.add_argument("--seed", "-s",   default=0,          type=int)    # random seed for reproducibility
+    parser.add_argument("--seed",   "-s", default=0,          type=int)    # random seed for reproducibility
     parser.add_argument("--policy", "-p", default=None,       type=str)
     parser.add_argument("--data",         default=None,       type=str)
     parser.add_argument("--workers",      default=4,          type=int)
     parser.add_argument("--logdir",       default='logs/qbn', type=str)
+    parser.add_argument("--traj_len",     default=1000,       type=int)
+    parser.add_argument("--dataset_size", default=int(5e4),   type=int)
     args = parser.parse_args()
     run_experiment(args)
     exit()
