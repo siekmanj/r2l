@@ -89,10 +89,10 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=10, max_t
     return reward
   
 
-def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=500, batch_size=128, logger=None):
-  obs_qbn    = QBN(states.shape[-1], layers=(32,64,128))
-  hidden_qbn = QBN(hiddens.shape[-1], layers=(32,64,128))
-  cell_qbn   = QBN(cells.shape[-1], layers=(32,64,128))
+def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=500, batch_size=256, logger=None):
+  obs_qbn    = QBN(states.shape[-1], layers=(64,32,8))
+  hidden_qbn = QBN(hiddens.shape[-1], layers=(64,32,8))
+  cell_qbn   = QBN(cells.shape[-1], layers=(64,32,8))
 
   obs_optim = optim.Adam(obs_qbn.parameters(), lr=1e-5, eps=1e-6)
   hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=1e-5, eps=1e-6)
@@ -135,6 +135,7 @@ def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=500, batch_si
     epoch_obs_losses = np.mean(epoch_obs_losses)
     epoch_hid_losses = np.mean(epoch_hid_losses)
     epoch_cel_losses = np.mean(epoch_cel_losses)
+    #d_reward = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
     d_reward = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
     n_reward = evaluate(policy)
     print("{:7.5f} | {:7.5f} | {:7.5f} | QBN reward: {:5.1f} | nominal reward {:5.1f} ".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses, d_reward, n_reward))

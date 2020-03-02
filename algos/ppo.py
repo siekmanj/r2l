@@ -119,6 +119,10 @@ class PPO_Worker:
     self.actor = deepcopy(actor)
     self.critic = deepcopy(critic)
     self.env = env_fn()
+    if hasattr(self.env, 'dynamics_randomization'):
+      self.dynamics_randomization = self.env.dynamics_randomization
+    else:
+      self.dynamics_randomization = False
 
   def update_policy(self, new_actor_params, new_critic_params, input_norm=None):
     for p, new_p in zip(self.actor.parameters(), new_actor_params):
@@ -140,6 +144,7 @@ class PPO_Worker:
       critic = self.critic
 
       while num_steps < min_steps:
+        self.env.dynamics_randomization = self.dynamics_randomization
         state = torch.Tensor(self.env.reset())
 
         done = False
@@ -152,6 +157,7 @@ class PPO_Worker:
         if hasattr(critic, 'init_hidden_state'):
           critic.init_hidden_state()
 
+        #print("dyn rand:", self.env.dynamics_randomization)
         while not done and traj_len < max_traj_len:
             state = torch.Tensor(state)
             norm_state = actor.normalize_state(state, update=False)
@@ -173,6 +179,33 @@ class PPO_Worker:
         memory.end_trajectory(terminal_value=value)
 
       return memory
+
+  def evaluate(self, trajs=1, max_traj_len=400):
+    with torch.no_grad():
+      ep_returns = []
+      for traj in range(trajs):
+        self.env.dynamics_randomization = False
+        state = torch.Tensor(self.env.reset())
+
+        done = False
+        traj_len = 0
+        ep_return = 0
+
+        if hasattr(self.actor, 'init_hidden_state'):
+          self.actor.init_hidden_state()
+
+        while not done and traj_len < max_traj_len:
+          state = self.actor.normalize_state(state, update=False)
+          action = self.actor(state, deterministic=True)
+
+          next_state, reward, done, _ = self.env.step(action.numpy())
+
+          state = torch.Tensor(next_state)
+          ep_return += reward
+          traj_len += 1
+        ep_returns += [ep_return]
+
+    return np.mean(ep_returns)
 
 class PPO:
     def __init__(self, actor, critic, env_fn, args):
@@ -268,6 +301,8 @@ class PPO:
       if verbose:
         print("\t{:5.4f}s to copy policy params to workers.".format(time() - start))
 
+      eval_reward = np.mean(ray.get([w.evaluate.remote(trajs=1, max_traj_len=max_traj_len) for w in self.workers]))
+
       start = time()
       buffers = ray.get([w.collect_experience.remote(max_traj_len, steps) for w in self.workers])
       memory = self.merge_buffers(buffers)
@@ -304,8 +339,9 @@ class PPO:
 
       if verbose:
         print("\t{:3.2f}s to update policy.".format(time() - start))
-      return np.mean(kls), np.mean(a_loss), np.mean(c_loss), len(memory)
+      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), len(memory)
 
+"""
 def eval_policy(policy, env, update_normalizer, min_timesteps=2000, max_traj_len=400, verbose=True, noise=None):
   with torch.no_grad():
     steps = 0
@@ -336,12 +372,12 @@ def eval_policy(policy, env, update_normalizer, min_timesteps=2000, max_traj_len
 
   print()
   return np.mean(ep_returns)
-  
+"""
 
 def run_experiment(args):
   torch.set_num_threads(1)
 
-  from util.env import env_factory
+  from util.env import env_factory, train_normalizer
   from util.log import create_logger
 
   from policies.critic import FF_V, LSTM_V
@@ -371,7 +407,10 @@ def run_experiment(args):
     critic = FF_V(obs_dim, layers=layers)
 
   env = env_fn()
-  eval_policy(policy, env, True, min_timesteps=args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
+  #eval_policy(policy, env, True, min_timesteps=args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
+  print("Collecting normalization statistics with {} states...".format(args.prenormalize_steps))
+  train_normalizer(policy, args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
+  #print(policy.welford_state_mean)
 
   policy.train(0)
   critic.train(0)
@@ -413,8 +452,8 @@ def run_experiment(args):
   timesteps = 0
   best_reward = None
   while timesteps < args.timesteps:
-    kl, a_loss, c_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl)
-    eval_reward = eval_policy(algo.actor, env, False, min_timesteps=args.traj_len*5, max_traj_len=args.traj_len, verbose=False)
+    eval_reward, kl, a_loss, c_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl)
+    #eval_reward = eval_policy(algo.actor, env, False, min_timesteps=args.traj_len*5, max_traj_len=args.traj_len, verbose=False)
 
     timesteps += steps
     print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))
