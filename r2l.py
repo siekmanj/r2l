@@ -38,6 +38,11 @@ if __name__ == "__main__":
 
     run_udp(args)
     exit()
+  if sys.argv[1] == 'logvis':
+    from cassie.udp import logvis
+    
+    logvis(sys.argv[2])
+    exit()
 
   # Utility for running QBN insertion.
   if sys.argv[1] == 'qbn':
