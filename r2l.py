@@ -31,12 +31,13 @@ if __name__ == "__main__":
 
   if sys.argv[1] == 'cassie':
     sys.argv.remove(sys.argv[1])
+    policies = sys.argv[1:]
     from cassie.udp import run_udp
 
-    parser.add_argument("--policy", "-p", default=None, type=str)
-    args = parser.parse_args()
+    #parser.add_argument("--policy", "-p", default=None, type=str)
+    #args = parser.parse_args()
 
-    run_udp(args)
+    run_udp(policies)
     exit()
   if sys.argv[1] == 'logvis':
     from cassie.udp import logvis
