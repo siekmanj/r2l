@@ -16,7 +16,7 @@ class TernaryTanh(torch.autograd.Function):
 ternaryTanh = TernaryTanh.apply
 
 class QBN(nn.Module):
-  def __init__(self, dim, layers=(16, 32, 64)):
+  def __init__(self, dim, layers=(128, 64, 16)):
     super(QBN, self).__init__()
 
     self.encoder_layers = nn.ModuleList()
@@ -33,7 +33,8 @@ class QBN(nn.Module):
   def encode(self, x):
     for layer in self.encoder_layers[:-1]:
       x = torch.tanh(layer(x))
-    return ternaryTanh(self.encoder_layers[-1](x))
+    x = self.encoder_layers[-1](x)
+    return ternaryTanh(1.5 * torch.tanh(x) + 0.5 * torch.tanh(-3 * x))
 
   def decode(self, x):
     for layer in self.decoder_layers[:-1]:

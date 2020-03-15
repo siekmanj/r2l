@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import locale, os
 
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 from copy import deepcopy
@@ -59,6 +60,9 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=10, max_t
     env = env_factory(actor.env_name)()
     reward = 0
 
+    obs_states = {}
+    hid_states = {}
+    cel_states = {}
     for _ in range(episodes):
       done = False
       traj_len = 0
@@ -75,28 +79,42 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=10, max_t
 
         if obs_qbn is not None:
           norm_state   = obs_qbn(norm_state) # discretize state
+          disc_state = obs_qbn.encode(norm_state)
+          disc_state = int(np.sum([3 ** (np.around(disc_state[i].numpy()+1)) for i in range(len(disc_state))]))
+          if disc_state not in obs_states:
+            obs_states[disc_state] = True
 
         if hid_qbn is not None:
           actor.hidden = [hid_qbn(hidden_state)]
+          disc_state = hid_qbn.encode(hidden_state)
+          disc_state = int(np.sum([3 ** (np.around(disc_state[i].numpy()+1)) for i in range(len(disc_state))]))
+          if disc_state not in hid_states:
+            hid_states[disc_state] = True
 
         if cel_qbn is not None:
           actor.cells  = [cel_qbn(cell_state)]
+          disc_state = cel_qbn.encode(cell_state)
+          disc_state = int(np.sum([3 ** (np.around(disc_state[i].numpy()+1)) for i in range(len(disc_state))]))
+          if disc_state not in cel_states:
+            cel_states[disc_state] = True
 
         action       = actor(norm_state)
         state, r, done, _ = env.step(action.numpy())
         traj_len += 1
         reward += r/episodes
-    return reward
+    return reward, len(obs_states), len(hid_states), len(cel_states)
   
 
-def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=500, batch_size=256, logger=None):
-  obs_qbn    = QBN(states.shape[-1], layers=(64,32,8))
-  hidden_qbn = QBN(hiddens.shape[-1], layers=(64,32,8))
-  cell_qbn   = QBN(cells.shape[-1], layers=(64,32,8))
+def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=500, batch_size=256, logger=None, layers=(64,32,8), lr=1e-5):
+  obs_qbn    = QBN(states.shape[-1],  layers=layers)
+  hidden_qbn = QBN(hiddens.shape[-1], layers=layers)
+  cell_qbn   = QBN(cells.shape[-1],   layers=layers)
 
-  obs_optim = optim.Adam(obs_qbn.parameters(), lr=1e-5, eps=1e-6)
-  hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=1e-5, eps=1e-6)
-  cell_optim = optim.Adam(cell_qbn.parameters(), lr=1e-5, eps=1e-6)
+  obs_optim = optim.Adam(obs_qbn.parameters(), lr=lr, eps=1e-6)
+  hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=lr, eps=1e-6)
+  cell_optim = optim.Adam(cell_qbn.parameters(), lr=lr, eps=1e-6)
+
+  best_reward = None
 
   for epoch in range(epochs):
     random_indices = SubsetRandomSampler(range(states.shape[0]))
@@ -135,22 +153,30 @@ def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=500, batch_si
     epoch_obs_losses = np.mean(epoch_obs_losses)
     epoch_hid_losses = np.mean(epoch_hid_losses)
     epoch_cel_losses = np.mean(epoch_cel_losses)
-    #d_reward = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
-    d_reward = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
-    n_reward = evaluate(policy)
-    print("{:7.5f} | {:7.5f} | {:7.5f} | QBN reward: {:5.1f} | nominal reward {:5.1f} ".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses, d_reward, n_reward))
+
+    d_reward, s_states, h_states, c_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
+    n_reward, _, _, _                      = evaluate(policy)
+
+    if best_reward is None or d_reward > best_reward:
+      torch.save(obs_qbn, os.path.join(logger.dir, 'obsqbn.pt'))
+      torch.save(hidden_qbn, os.path.join(logger.dir, 'hidqbn.pt'))
+      torch.save(cell_qbn, os.path.join(logger.dir, 'celqbn.pt'))
+
+    print("{:7.5f} | {:7.5f} | {:7.5f} | states: {:5d} {:5d} {:5d} | QBN reward: {:5.1f} | nominal reward {:5.1f} ".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses, s_states, h_states, c_states, d_reward, n_reward))
     if logger is not None:
       logger.add_scalar(policy.env_name + '_qbn/obs_loss', epoch_obs_losses, epoch)
       logger.add_scalar(policy.env_name + '_qbn/hidden_loss', epoch_hid_losses, epoch)
       logger.add_scalar(policy.env_name + '_qbn/cell_loss', epoch_cel_losses, epoch)
       logger.add_scalar(policy.env_name + '_qbn/qbn_reward', d_reward, epoch)
       logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/hidden_states', h_states, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/cell_states', c_states, epoch)
 
   return obs_qbn, hidden_qbn, cell_qbn
   
 
 def run_experiment(args):
-  import locale, os
   locale.setlocale(locale.LC_ALL, '')
 
   from util.env import env_factory
@@ -174,6 +200,8 @@ def run_experiment(args):
   obs_dim    = env_fn().observation_space.shape[0]
   action_dim = env_fn().action_space.shape[0]
   hidden_dim = policy.actor_layers[0].hidden_size
+
+  layers = [int(x) for x in args.layers.split(',')]
 
   if not args.nolog:
     logger = create_logger(args)
@@ -201,5 +229,9 @@ def run_experiment(args):
   hiddens = torch.as_tensor(data['hiddens'])
   cells   = torch.as_tensor(data['cells'])
 
-  obs_qbn, hid_qbn, cel_qbn = train_lstm_qbn(policy, states, actions, hiddens, cells, logger=logger)
+  obs_qbn, hid_qbn, cel_qbn = train_lstm_qbn(policy, states, actions, hiddens, cells, 
+                                             logger=logger, 
+                                             layers=layers,
+                                             batch_size=args.batch_size,
+                                             lr=args.lr)
 
