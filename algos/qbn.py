@@ -79,24 +79,24 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=10, max_t
 
         if obs_qbn is not None:
           norm_state   = obs_qbn(norm_state) # discretize state
-          disc_state = obs_qbn.encode(norm_state)
-          disc_state = int(np.sum([3 ** (np.around(disc_state[i].numpy()+1)) for i in range(len(disc_state))]))
-          if disc_state not in obs_states:
-            obs_states[disc_state] = True
+          disc_state = np.round(obs_qbn.encode(norm_state).numpy()).astype(int)
+          key = ''.join(map(str, disc_state))
+          if key not in obs_states:
+            obs_states[key] = True
 
         if hid_qbn is not None:
           actor.hidden = [hid_qbn(hidden_state)]
-          disc_state = hid_qbn.encode(hidden_state)
-          disc_state = int(np.sum([3 ** (np.around(disc_state[i].numpy()+1)) for i in range(len(disc_state))]))
-          if disc_state not in hid_states:
-            hid_states[disc_state] = True
+          disc_state = np.round(hid_qbn.encode(hidden_state).numpy()).astype(int)
+          key = ''.join(map(str, disc_state[0]))
+          if key not in hid_states:
+            hid_states[key] = True
 
         if cel_qbn is not None:
           actor.cells  = [cel_qbn(cell_state)]
-          disc_state = cel_qbn.encode(cell_state)
-          disc_state = int(np.sum([3 ** (np.around(disc_state[i].numpy()+1)) for i in range(len(disc_state))]))
-          if disc_state not in cel_states:
-            cel_states[disc_state] = True
+          disc_state = np.round(cel_qbn.encode(cell_state).numpy()).astype(int)
+          key = ''.join(map(str, disc_state[0]))
+          if key not in cel_states:
+            cel_states[key] = True
 
         action       = actor(norm_state)
         state, r, done, _ = env.step(action.numpy())
