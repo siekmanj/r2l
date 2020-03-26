@@ -157,7 +157,6 @@ class PPO_Worker:
         if hasattr(critic, 'init_hidden_state'):
           critic.init_hidden_state()
 
-        #print("dyn rand:", self.env.dynamics_randomization)
         while not done and traj_len < max_traj_len:
             state = torch.Tensor(state)
             norm_state = actor.normalize_state(state, update=False)
@@ -341,39 +340,6 @@ class PPO:
         print("\t{:3.2f}s to update policy.".format(time() - start))
       return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), len(memory)
 
-"""
-def eval_policy(policy, env, update_normalizer, min_timesteps=2000, max_traj_len=400, verbose=True, noise=None):
-  with torch.no_grad():
-    steps = 0
-    ep_returns = []
-    while steps < min_timesteps:
-      env.dynamics_randomization = False
-      state = torch.Tensor(env.reset())
-      done = False
-      traj_len = 0
-      ep_return = 0
-
-      if hasattr(policy, 'init_hidden_state'):
-        policy.init_hidden_state()
-
-      while not done and traj_len < max_traj_len:
-        state = policy.normalize_state(state, update=update_normalizer)
-        action = policy(state, deterministic=True)
-        if noise is not None:
-          action = action + torch.randn(action.size()) * noise
-        next_state, reward, done, _ = env.step(action.numpy())
-        state = torch.Tensor(next_state)
-        ep_return += reward
-        traj_len += 1
-        steps += 1
-        if verbose:
-          print("Evaluating {:5d}/{:5d}".format(steps, min_timesteps), end="\r")
-      ep_returns += [ep_return]
-
-  print()
-  return np.mean(ep_returns)
-"""
-
 def run_experiment(args):
   torch.set_num_threads(1)
 
@@ -407,10 +373,9 @@ def run_experiment(args):
     critic = FF_V(obs_dim, layers=layers)
 
   env = env_fn()
-  #eval_policy(policy, env, True, min_timesteps=args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
+
   print("Collecting normalization statistics with {} states...".format(args.prenormalize_steps))
   train_normalizer(policy, args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
-  #print(policy.welford_state_mean)
 
   policy.train(0)
   critic.train(0)
@@ -453,7 +418,6 @@ def run_experiment(args):
   best_reward = None
   while timesteps < args.timesteps:
     eval_reward, kl, a_loss, c_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl)
-    #eval_reward = eval_policy(algo.actor, env, False, min_timesteps=args.traj_len*5, max_traj_len=args.traj_len, verbose=False)
 
     timesteps += steps
     print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))

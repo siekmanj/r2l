@@ -39,21 +39,8 @@ class Net(nn.Module):
         self.welford_state_mean += (state - state_old) / self.welford_state_n
         self.welford_state_mean_diff += (state - state_old) * (state - state_old)
         self.welford_state_n += 1
-      elif len(state.size()) == 2: # If we get a batch
-        print("NORMALIZING 2D TENSOR (this should not be happening)")
-        for r_n in r:
-          state_old = self.welford_state_mean
-          self.welford_state_mean += (state_n - state_old) / self.welford_state_n
-          self.welford_state_mean_diff += (state_n - state_old) * (state_n - state_old)
-          self.welford_state_n += 1
-      elif len(state.size()) == 3: # If we get a batch of sequences
-        print("NORMALIZING 3D TENSOR (this really should not be happening)")
-        for r_t in r:
-          for r_n in r_t:
-            state_old = self.welford_state_mean
-            self.welford_state_mean += (state_n - state_old) / self.welford_state_n
-            self.welford_state_mean_diff += (state_n - state_old) * (state_n - state_old)
-            self.welford_state_n += 1
+      else:
+        raise RuntimeError
     return (state - self.welford_state_mean) / sqrt(self.welford_state_mean_diff / self.welford_state_n)
 
   def copy_normalizer_stats(self, net):

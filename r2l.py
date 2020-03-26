@@ -31,18 +31,26 @@ if __name__ == "__main__":
 
   if sys.argv[1] == 'cassie':
     sys.argv.remove(sys.argv[1])
-    policies = sys.argv[1:]
     from cassie.udp import run_udp
 
-    #parser.add_argument("--policy", "-p", default=None, type=str)
-    #args = parser.parse_args()
+    policies = sys.argv[1:]
 
     run_udp(policies)
     exit()
+
   if sys.argv[1] == 'logvis':
     from cassie.udp import logvis
     
     logvis(sys.argv[2])
+    exit()
+
+  if sys.argv[1] == 'extract':
+    sys.argv.remove(sys.argv[1])
+    from algos.extract_dynamics import run_experiment
+
+    parser.add_argument("--policy", "-p", default=None,       type=str)
+    args = parser.parse_args()
+    run_experiment(args)
     exit()
 
   # Utility for running QBN insertion.
