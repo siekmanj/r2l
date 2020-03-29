@@ -10,7 +10,6 @@ from copy import deepcopy
 from policies.autoencoder import QBN
 from util.env import env_factory
 
-
 def get_hiddens(policy):
   hiddens = []
   if hasattr(policy, 'hidden'):
@@ -27,30 +26,36 @@ def get_hiddens(policy):
   return torch.cat([layer.view(-1) for layer in hiddens])
   
 #@ray.remote
-def collect_data(policy, max_traj_len=400, points=2):
+def collect_data(policy, max_traj_len=200, points=500):
   torch.set_num_threads(1)
   with torch.no_grad():
     env = env_factory(policy.env_name)()
     env.dynamics_randomization = True
 
-    total_t = 0
-    while total_t < 800:
-      state = env.reset()
-      done = False
-      timesteps = 0
+    done = True
 
-      if hasattr(policy, 'init_hidden_state'):
-        policy.init_hidden_state()
+    latent = []
+    label  = []
 
-      while not done and timesteps < max_traj_len:
-        state = policy.normalize_state(state, update=True)
-        action = policy(state).numpy()
-        state, _, done, _ = env.step(action)
-        timesteps += 1
-        total_t += 1
+    while len(label) < points:
 
-        latent = get_hiddens(policy)
-        label  = env.get_dynamics()
+      if done or timesteps >= max_traj_len:
+        timesteps = 0
+        state = env.reset()
+        done = False
+        if hasattr(policy, 'init_hidden_state'):
+          policy.init_hidden_state()
+
+      state = policy.normalize_state(state, update=True)
+      action = policy(state).numpy()
+      state, _, done, _ = env.step(action)
+      env.render()
+      timesteps += 1
+
+      if timesteps > 50 and np.random.randint(25) == 0:
+        latent += [get_hiddens(policy)]
+        label  += [env.get_dynamics()]
+    return latent, label
   
 
 def run_experiment(args):

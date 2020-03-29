@@ -86,8 +86,8 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
       env = env_factory(env_name)()
 
     reward_sum = 0
-    env.dynamics_randomization = False
-    #env.dynamics_randomization = True
+    #env.dynamics_randomization = False
+    env.dynamics_randomization = True
     total_t = 0
     episodes = 0
     while total_t < min_timesteps:
