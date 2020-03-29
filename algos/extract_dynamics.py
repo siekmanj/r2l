@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-import locale, os
+import locale, os, time
 
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 from copy import deepcopy
@@ -13,19 +13,19 @@ from util.env import env_factory
 def get_hiddens(policy):
   hiddens = []
   if hasattr(policy, 'hidden'):
-    hiddens += policy.hidden
+    hiddens += [h.data for h in policy.hidden]
   
-  if hasattr(policy, 'cells'):
-    hiddens += policy.cells
+  #if hasattr(policy, 'cells'):
+    #hiddens += [c.data for c in policy.cells]
   
   for layer in hiddens:
     if layer.size(0) != 1:
       print("Invalid batch dim.")
       raise RuntimeError
 
-  return torch.cat([layer.view(-1) for layer in hiddens])
+  return torch.cat([layer.view(-1) for layer in hiddens]).numpy()
   
-#@ray.remote
+@ray.remote
 def collect_data(policy, max_traj_len=200, points=500):
   torch.set_num_threads(1)
   with torch.no_grad():
@@ -38,7 +38,6 @@ def collect_data(policy, max_traj_len=200, points=500):
     label  = []
 
     while len(label) < points:
-
       if done or timesteps >= max_traj_len:
         timesteps = 0
         state = env.reset()
@@ -49,7 +48,6 @@ def collect_data(policy, max_traj_len=200, points=500):
       state = policy.normalize_state(state, update=True)
       action = policy(state).numpy()
       state, _, done, _ = env.step(action)
-      env.render()
       timesteps += 1
 
       if timesteps > 50 and np.random.randint(25) == 0:
@@ -57,6 +55,14 @@ def collect_data(policy, max_traj_len=200, points=500):
         label  += [env.get_dynamics()]
     return latent, label
   
+def concat(datalist):
+  latents = []
+  labels  = []
+  for l in datalist:
+    latent, label = l
+    latents += latent
+    labels  += label
+  return latents, labels
 
 def run_experiment(args):
   locale.setlocale(locale.LC_ALL, '')
@@ -70,6 +76,14 @@ def run_experiment(args):
 
   env = env_fn()
 
-  collect_data(policy)
+  ray.init()
+  points_per_worker = max(args.points / args.workers, 1)
+  for i in range(args.iterations):
+    x, y = concat(ray.get([collect_data.remote(policy, points=points_per_worker) for _ in range(args.workers)]))
+
+    for i, x_i in enumerate(y[0]):
+      print(i, x_i)
+
+    input()
 
 
