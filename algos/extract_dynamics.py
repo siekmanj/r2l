@@ -44,10 +44,12 @@ def collect_point(policy, max_traj_len):
     state, _, done, _ = env.step(action)
     timesteps += 1
 
+  print("traj len ", timesteps)
   return get_hiddens(policy), env.get_dynamics()
 
 @ray.remote
-def collect_data(policy, max_traj_len=200, points=500):
+def collect_data(policy, max_traj_len=150, points=500):
+  policy = deepcopy(policy)
   torch.set_num_threads(1)
   with torch.no_grad():
     done = True
@@ -58,35 +60,8 @@ def collect_data(policy, max_traj_len=200, points=500):
     last = time.time()
     while len(label) < points:
       x, y = collect_point(policy, max_traj_len)
-      """
-      if done or timesteps >= max_traj_len:
-        env = env_factory(policy.env_name)()
-        env.dynamics_randomization = True
-
-        timesteps = 0
-        state = env.reset()
-        done = False
-        chosen_timestep = np.random.randint(40, max_traj_len)
-
-        if hasattr(policy, 'init_hidden_state'):
-          policy.init_hidden_state()
-
-        time.sleep(0.1)
-
-      state = policy.normalize_state(state, update=True)
-      action = policy(state).numpy()
-      state, _, done, _ = env.step(action)
-      timesteps += 1
-
-      if timesteps == chosen_timestep or (done and timesteps < chosen_timestep):
-        latent += [get_hiddens(policy)]
-        label  += [env.get_dynamics()]
-        done = True
-        
-        #print("Collected {:3d} of {:3d} points ({:5.2f} seconds since last, trajlen {:3d})".format(len(latent), points, time.time() - last, timesteps))
-        last = time.time()
-      """
-    #print("DONE!")
+      latent += [x]
+      label  += [y]
     return latent, label
   
 def concat(datalist):
@@ -105,7 +80,7 @@ def run_experiment(args):
 
   policy = torch.load(args.policy)
 
-  env_fn     = env_factory(policy.env_name)
+  env_fn = env_factory(policy.env_name)
 
   layers = [int(x) for x in args.layers.split(',')]
 
@@ -115,7 +90,7 @@ def run_experiment(args):
 
   latent_dim = get_hiddens(policy).shape[0]
   output_dim = env.get_dynamics().shape[0]
-  model      = Model(latent_dim, output_dim)#, layers=layers)
+  model      = Model(latent_dim, output_dim, layers=layers)
 
   opt = optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
 
@@ -131,21 +106,18 @@ def run_experiment(args):
 
     for epoch in range(args.epochs):
 
-      print("Starting epoch {:3d}".format(epoch))
-
       random_indices = SubsetRandomSampler(range(len(x)-1))
       sampler = BatchSampler(random_indices, args.batch_size, drop_last=False)
 
       for j, batch_idx in enumerate(sampler):
-        batch_x = x[batch_idx]
-        batch_y = y[batch_idx]
+        batch_x = x[batch_idx].float()
+        batch_y = y[batch_idx].float()
         loss = 0.5 * (batch_y - model(batch_x)).pow(2).mean()
 
         opt.zero_grad()
         loss.backward()
         opt.step()
 
-        print("Batch {:4d}/{:4d}: {:6.5f}".format(j, len(sampler)-1, loss.item()), end='\r')
+        print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(epoch, j, len(sampler)-1, loss.item()), end='\r')
+        torch.save(model, args.policy[:-3] + '-extractor.pt')
       print()
-
-    input()
