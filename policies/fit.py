@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from policies.base import Net
 
 class Model(Net):
-  def __init__(self, layers=(512,256), output_dim=64, nonlinearity=torch.tanh):
+  def __init__(self, state_dim, output_dim, layers=(512,256), nonlinearity=torch.tanh):
     super(Model, self).__init__()
 
     self.layers = nn.ModuleList()
@@ -19,5 +19,5 @@ class Model(Net):
 
   def forward(self, x):
     for l in self.layers:
-      x = self.nonlinearity(self.l(x))
+      x = self.nonlinearity(l(x))
     return self.network_out(x)
