@@ -58,35 +58,6 @@ def collect_data(policy, max_traj_len=200, points=500):
     last = time.time()
     while len(label) < points:
       x, y = collect_point(policy, max_traj_len)
-      """
-      if done or timesteps >= max_traj_len:
-        env = env_factory(policy.env_name)()
-        env.dynamics_randomization = True
-
-        timesteps = 0
-        state = env.reset()
-        done = False
-        chosen_timestep = np.random.randint(40, max_traj_len)
-
-        if hasattr(policy, 'init_hidden_state'):
-          policy.init_hidden_state()
-
-        time.sleep(0.1)
-
-      state = policy.normalize_state(state, update=True)
-      action = policy(state).numpy()
-      state, _, done, _ = env.step(action)
-      timesteps += 1
-
-      if timesteps == chosen_timestep or (done and timesteps < chosen_timestep):
-        latent += [get_hiddens(policy)]
-        label  += [env.get_dynamics()]
-        done = True
-        
-        #print("Collected {:3d} of {:3d} points ({:5.2f} seconds since last, trajlen {:3d})".format(len(latent), points, time.time() - last, timesteps))
-        last = time.time()
-      """
-    #print("DONE!")
     return latent, label
   
 def concat(datalist):
@@ -131,8 +102,6 @@ def run_experiment(args):
 
     for epoch in range(args.epochs):
 
-      print("Starting epoch {:3d}".format(epoch))
-
       random_indices = SubsetRandomSampler(range(len(x)-1))
       sampler = BatchSampler(random_indices, args.batch_size, drop_last=False)
 
@@ -145,7 +114,6 @@ def run_experiment(args):
         loss.backward()
         opt.step()
 
-        print("Batch {:4d}/{:4d}: {:6.5f}".format(j, len(sampler)-1, loss.item()), end='\r')
-      print()
-
-    input()
+        print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(j, len(sampler)-1, loss.item()), end='\r')
+      loss_total = 0.5 * (y - model(x)).pow(2).mean()
+      print("Epoch {:3d} loss: {:7.6f}\t\t\t\t\t\t\t\t\t".format(loss_total))
