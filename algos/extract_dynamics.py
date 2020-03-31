@@ -44,7 +44,6 @@ def collect_point(policy, max_traj_len):
     state, _, done, _ = env.step(action)
     timesteps += 1
 
-  print("traj len ", timesteps)
   return get_hiddens(policy), env.get_dynamics()
 
 @ray.remote
@@ -118,6 +117,6 @@ def run_experiment(args):
         loss.backward()
         opt.step()
 
-        print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(j, len(sampler)-1, loss.item()), end='\r')
+        print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(epoch, j, len(sampler)-1, loss.item()), end='\r')
       loss_total = 0.5 * (y - model(x)).pow(2).mean()
-      print("Epoch {:3d} loss: {:7.6f}\t\t\t\t\t\t\t\t\t".format(loss_total))
+      print("Epoch {:3d} loss: {:7.6f}\t\t\t\t\t\t\t\t\t".format(epoch, loss_total))
