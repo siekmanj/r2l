@@ -118,12 +118,6 @@ def run_experiment(args):
         loss.backward()
         opt.step()
 
-<<<<<<< HEAD
         print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(j, len(sampler)-1, loss.item()), end='\r')
       loss_total = 0.5 * (y - model(x)).pow(2).mean()
       print("Epoch {:3d} loss: {:7.6f}\t\t\t\t\t\t\t\t\t".format(loss_total))
-=======
-        print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(epoch, j, len(sampler)-1, loss.item()), end='\r')
-        torch.save(model, args.policy[:-3] + '-extractor.pt')
-      print()
->>>>>>> 97333b366db6bcb4170aa30785b37780042008c6
