@@ -44,10 +44,12 @@ def collect_point(policy, max_traj_len):
     state, _, done, _ = env.step(action)
     timesteps += 1
 
+  print("traj len ", timesteps)
   return get_hiddens(policy), env.get_dynamics()
 
 @ray.remote
-def collect_data(policy, max_traj_len=200, points=500):
+def collect_data(policy, max_traj_len=150, points=500):
+  policy = deepcopy(policy)
   torch.set_num_threads(1)
   with torch.no_grad():
     done = True
@@ -58,6 +60,8 @@ def collect_data(policy, max_traj_len=200, points=500):
     last = time.time()
     while len(label) < points:
       x, y = collect_point(policy, max_traj_len)
+      latent += [x]
+      label  += [y]
     return latent, label
   
 def concat(datalist):
@@ -76,7 +80,7 @@ def run_experiment(args):
 
   policy = torch.load(args.policy)
 
-  env_fn     = env_factory(policy.env_name)
+  env_fn = env_factory(policy.env_name)
 
   layers = [int(x) for x in args.layers.split(',')]
 
@@ -86,7 +90,7 @@ def run_experiment(args):
 
   latent_dim = get_hiddens(policy).shape[0]
   output_dim = env.get_dynamics().shape[0]
-  model      = Model(latent_dim, output_dim)#, layers=layers)
+  model      = Model(latent_dim, output_dim, layers=layers)
 
   opt = optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
 
@@ -106,14 +110,20 @@ def run_experiment(args):
       sampler = BatchSampler(random_indices, args.batch_size, drop_last=False)
 
       for j, batch_idx in enumerate(sampler):
-        batch_x = x[batch_idx]
-        batch_y = y[batch_idx]
+        batch_x = x[batch_idx].float()
+        batch_y = y[batch_idx].float()
         loss = 0.5 * (batch_y - model(batch_x)).pow(2).mean()
 
         opt.zero_grad()
         loss.backward()
         opt.step()
 
+<<<<<<< HEAD
         print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(j, len(sampler)-1, loss.item()), end='\r')
       loss_total = 0.5 * (y - model(x)).pow(2).mean()
       print("Epoch {:3d} loss: {:7.6f}\t\t\t\t\t\t\t\t\t".format(loss_total))
+=======
+        print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(epoch, j, len(sampler)-1, loss.item()), end='\r')
+        torch.save(model, args.policy[:-3] + '-extractor.pt')
+      print()
+>>>>>>> 97333b366db6bcb4170aa30785b37780042008c6
