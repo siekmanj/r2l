@@ -48,14 +48,15 @@ if __name__ == "__main__":
     sys.argv.remove(sys.argv[1])
     from algos.extract_dynamics import run_experiment
 
-    parser.add_argument("--policy", "-p", default=None,       type=str)
-    parser.add_argument("--workers",      default=4,          type=int)
-    parser.add_argument("--points",       default=5000,       type=int)
-    parser.add_argument("--iterations",   default=1000,       type=int)
-    parser.add_argument("--batch_size",   default=16,         type=int)
-    parser.add_argument("--layers",       default="256,256",  type=str) 
-    parser.add_argument("--lr",           default=1e-5,       type=float)
-    parser.add_argument("--epochs",       default=5,          type=int)      # number of updates per iter
+    parser.add_argument("--policy", "-p", default=None,           type=str)
+    parser.add_argument("--workers",      default=4,              type=int)
+    parser.add_argument("--points",       default=5000,           type=int)
+    parser.add_argument("--iterations",   default=1000,           type=int)
+    parser.add_argument("--batch_size",   default=16,             type=int)
+    parser.add_argument("--layers",       default="256,256",      type=str) 
+    parser.add_argument("--lr",           default=1e-5,           type=float)
+    parser.add_argument("--epochs",       default=5,              type=int)
+    parser.add_argument("--logdir",       default='logs/extract', type=str)
     args = parser.parse_args()
     run_experiment(args)
     exit()

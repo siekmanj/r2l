@@ -62,6 +62,7 @@ def create_logger(args):
   logger = SummaryWriter(output_dir, flush_secs=0.1)
   print("Logging to " + color.BOLD + color.ORANGE + str(output_dir) + color.END)
 
+  logger.taskname = task_name
   logger.dir = output_dir
   return logger
 

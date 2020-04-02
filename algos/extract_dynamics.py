@@ -44,7 +44,6 @@ def collect_point(policy, max_traj_len):
     state, _, done, _ = env.step(action)
     timesteps += 1
 
-  print("traj len ", timesteps)
   return get_hiddens(policy), env.get_dynamics()
 
 @ray.remote
@@ -76,6 +75,8 @@ def concat(datalist):
   return latents, labels
 
 def run_experiment(args):
+  from util.log import create_logger
+
   locale.setlocale(locale.LC_ALL, '')
 
   policy = torch.load(args.policy)
@@ -94,6 +95,8 @@ def run_experiment(args):
 
   opt = optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
 
+  logger = create_logger(args)
+
   ray.init()
   points_per_worker = max(args.points // args.workers, 1)
   for i in range(args.iterations):
@@ -104,6 +107,7 @@ def run_experiment(args):
 
     print("{:3.2f} to collect {} timesteps".format(time.time() - start, len(x)))
 
+    iter_losses = []
     for epoch in range(args.epochs):
 
       random_indices = SubsetRandomSampler(range(len(x)-1))
@@ -119,5 +123,9 @@ def run_experiment(args):
         opt.step()
 
         print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(epoch, j, len(sampler)-1, loss.item()), end='\r')
-        torch.save(model, args.policy[:-3] + '-extractor.pt')
-      print()
+      loss_total = 0.5 * (y - model(x)).pow(2).mean().item()
+      iter_losses.append(loss_total)
+      print("Epoch {:3d} loss: {:7.6f} {:64s}".format(epoch, loss_total, ''))
+    iter_loss = np.mean(iter_losses)
+    logger.add_scalar(logger.taskname + '/loss', iter_loss, i)
+
