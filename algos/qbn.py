@@ -55,7 +55,7 @@ def collect_data(actor, timesteps, max_traj_len, seed):
 
     return [states, actions, hiddens, cells]
 
-def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=10, max_traj_len=1000):
+def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=5, max_traj_len=1000):
   with torch.no_grad():
     env = env_factory(actor.env_name)()
     reward = 0
@@ -105,7 +105,8 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=10, max_t
     return reward, len(obs_states), len(hid_states), len(cel_states)
   
 
-def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=500, batch_size=256, logger=None, layers=(64,32,8), lr=1e-5):
+"""
+def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=10, batch_size=64, logger=None, layers=(512,256,64), lr=1e-4):
   obs_qbn    = QBN(states.shape[-1],  layers=layers)
   hidden_qbn = QBN(hiddens.shape[-1], layers=layers)
   cell_qbn   = QBN(cells.shape[-1],   layers=layers)
@@ -174,6 +175,7 @@ def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=500, batch_si
       logger.add_scalar(policy.env_name + '_qbn/cell_states', c_states, epoch)
 
   return obs_qbn, hidden_qbn, cell_qbn
+"""
   
 
 def run_experiment(args):
@@ -203,35 +205,91 @@ def run_experiment(args):
 
   layers = [int(x) for x in args.layers.split(',')]
 
+  states     = env_fn().reset()
+  obs_qbn    = QBN(obs_dim,    layers=layers)
+  hidden_qbn = QBN(hidden_dim, layers=layers)
+  cell_qbn   = QBN(hidden_dim, layers=layers)
+
+  obs_optim    = optim.Adam(obs_qbn.parameters(), lr=args.lr, eps=1e-6)
+  hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=args.lr, eps=1e-6)
+  cell_optim   = optim.Adam(cell_qbn.parameters(), lr=args.lr, eps=1e-6)
+
+  best_reward = None
+
   if not args.nolog:
     logger = create_logger(args)
   else:
     logger = None
 
-  # Generate data for training QBN
-  if args.data is None:
-    print("Collecting dataset of size {:n} with {} workers...".format(args.dataset_size, args.workers))
-    ray.init()
-    data = ray.get([collect_data.remote(policy, args.dataset_size/args.workers, args.traj_len, np.random.randint(65536)) for _ in range(args.workers)])
+  ray.init()
+
+  for iteration in range(args.iterations):
+    data = ray.get([collect_data.remote(policy, args.points/args.workers, args.traj_len, np.random.randint(65535)) for _ in range(args.workers)])
     states  = np.vstack([r[0] for r in data])
     actions = np.vstack([r[1] for r in data])
     hiddens = np.vstack([r[2] for r in data])
     cells   = np.vstack([r[3] for r in data])
 
-    data = [states, actions, hiddens, cells]
+    for epoch in range(args.epochs):
+      random_indices = SubsetRandomSampler(range(states.shape[0]))
+      sampler        = BatchSampler(random_indices, args.batch_size, drop_last=False)
+
+      epoch_obs_losses = []
+      epoch_hid_losses = []
+      epoch_cel_losses = []
+      for i, batch in enumerate(sampler):
+        batch_states  = torch.from_numpy(states[batch])
+        batch_actions = torch.from_numpy(actions[batch])
+        batch_hiddens = torch.from_numpy(hiddens[batch])
+        batch_cells   = torch.from_numpy(cells[batch])
+
+        obs_loss = 0.5 * (batch_states  - obs_qbn(batch_states)).pow(2).mean()
+        hid_loss = 0.5 * (batch_hiddens - hidden_qbn(batch_hiddens)).pow(2).mean()
+        cel_loss = 0.5 * (batch_cells   - cell_qbn(batch_cells)).pow(2).mean()
+
+        obs_optim.zero_grad()
+        obs_loss.backward()
+        obs_optim.step()
+
+        hidden_optim.zero_grad()
+        hid_loss.backward()
+        hidden_optim.step()
+
+        cell_optim.zero_grad()
+        cel_loss.backward()
+        cell_optim.step()
+
+        epoch_obs_losses.append(obs_loss.item())
+        epoch_hid_losses.append(hid_loss.item())
+        epoch_cel_losses.append(cel_loss.item())
+        print("epoch {:3d} / {:3d}, batch {:3d} / {:3d}".format(epoch+1, args.epochs, i+1, len(sampler)), end='\r')
+
+    epoch_obs_losses = np.mean(epoch_obs_losses)
+    epoch_hid_losses = np.mean(epoch_hid_losses)
+    epoch_cel_losses = np.mean(epoch_cel_losses)
+
+    print("\nEvaluating...")
+    d_reward, s_states, h_states, c_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
+    a_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
+    b_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=cell_qbn)
+    c_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=None)
+    n_reward, _, _, _                      = evaluate(policy)
+
+    if best_reward is None or d_reward > best_reward:
+      torch.save(obs_qbn, os.path.join(logger.dir, 'obsqbn.pt'))
+      torch.save(hidden_qbn, os.path.join(logger.dir, 'hidqbn.pt'))
+      torch.save(cell_qbn, os.path.join(logger.dir, 'celqbn.pt'))
+
+    print("Losses: {:7.5f} {:7.5f} {:7.5f} | States: {:5d} {:5d} {:5d} | QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.1f} ".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses, s_states, h_states, c_states, d_reward, a_reward, b_reward, c_reward, n_reward))
     if logger is not None:
-      args.data = os.path.join(logger.dir, 'data.npz')
-      np.savez(args.data, states=states, actions=actions, hiddens=hiddens, cells=cells)
-  data = np.load(args.data)
-
-  states  = torch.as_tensor(data['states'])
-  actions = torch.as_tensor(data['actions'])
-  hiddens = torch.as_tensor(data['hiddens'])
-  cells   = torch.as_tensor(data['cells'])
-
-  obs_qbn, hid_qbn, cel_qbn = train_lstm_qbn(policy, states, actions, hiddens, cells, 
-                                             logger=logger, 
-                                             layers=layers,
-                                             batch_size=args.batch_size,
-                                             lr=args.lr)
-
+      logger.add_scalar(policy.env_name + '_qbn/obs_loss',           epoch_obs_losses,iteration)
+      logger.add_scalar(policy.env_name + '_qbn/hidden_loss',        epoch_hid_losses,iteration)
+      logger.add_scalar(policy.env_name + '_qbn/cell_loss',          epoch_cel_losses,iteration)
+      logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/nostate_reward',     a_reward, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/nohidden_reward',    b_reward, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/nocell_reward',      c_reward, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/nominal_reward',     n_reward, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states, iteration)

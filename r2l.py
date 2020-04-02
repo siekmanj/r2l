@@ -73,9 +73,11 @@ if __name__ == "__main__":
     parser.add_argument("--logdir",       default='logs/qbn', type=str)
     parser.add_argument("--traj_len",     default=1000,       type=int)
     parser.add_argument("--layers",       default="256,256",  type=str) 
-    parser.add_argument("--lr",           default=1e-5,       type=float)
-    parser.add_argument("--dataset_size", default=int(5e4),   type=int)
+    parser.add_argument("--lr",           default=1e-4,       type=float)
+    parser.add_argument("--points",       default=1000,       type=int)
     parser.add_argument("--batch_size",   default=256,        type=int)
+    parser.add_argument("--iterations",   default=1000,       type=int)
+    parser.add_argument("--epochs",       default=5,          type=int)      # number of updates per iter
     args = parser.parse_args()
     run_experiment(args)
     exit()
