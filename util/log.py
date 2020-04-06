@@ -64,6 +64,7 @@ def create_logger(args):
 
   logger.taskname = task_name
   logger.dir = output_dir
+  logger.arg_hash = arg_hash
   return logger
 
 

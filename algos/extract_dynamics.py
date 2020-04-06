@@ -70,8 +70,8 @@ def concat(datalist):
     latent, label = l
     latents += latent
     labels  += label
-  latents = torch.tensor(latents)
-  labels  = torch.tensor(labels)
+  latents = torch.tensor(latents).float()
+  labels  = torch.tensor(labels).float()
   return latents, labels
 
 def run_experiment(args):
@@ -114,8 +114,8 @@ def run_experiment(args):
       sampler = BatchSampler(random_indices, args.batch_size, drop_last=False)
 
       for j, batch_idx in enumerate(sampler):
-        batch_x = x[batch_idx].float()
-        batch_y = y[batch_idx].float()
+        batch_x = x[batch_idx]#.float()
+        batch_y = y[batch_idx]#.float()
         loss = 0.5 * (batch_y - model(batch_x)).pow(2).mean()
 
         opt.zero_grad()
@@ -127,5 +127,5 @@ def run_experiment(args):
       iter_losses.append(loss_total)
       print("Epoch {:3d} loss: {:7.6f} {:64s}".format(epoch, loss_total, ''))
     iter_loss = np.mean(iter_losses)
-    logger.add_scalar(logger.taskname + '/loss', iter_loss, i)
+    logger.add_scalar(logger.arg_hash + '/' + logger.taskname + '/loss', iter_loss, i)
 
