@@ -223,7 +223,7 @@ def run_experiment(args):
 
   print("Training phase over. Beginning finetuning.")
 
-  for iteration in range(args.finetuning):
+  for fine_iter in range(args.finetuning):
     losses = []
     for ep in range(args.episodes):
       env = env_fn()
@@ -268,6 +268,15 @@ def run_experiment(args):
     a_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=cell_qbn)
     b_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=None)
     c_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=None)
+
+    logger.add_scalar(policy.env_name + '_qbn/finetune_loss',      losses.item(), iteration + fine_iter)
+    logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward,      iteration + fine_iter)
+    logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',    a_reward,      iteration + fine_iter)
+    logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  b_reward,      iteration + fine_iter)
+    logger.add_scalar(policy.env_name + '_qbn/stateonly_reward',   c_reward,      iteration + fine_iter)
+    logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states,      iteration + fine_iter)
+    logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states,      iteration + fine_iter)
+    logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states,      iteration + fine_iter)
 
     print("Finetuning loss: {:7.5f} | States: {:5d} {:5d} {:5d} | QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(losses, s_states, h_states, c_states, d_reward, a_reward, b_reward, c_reward, n_reward))
 
