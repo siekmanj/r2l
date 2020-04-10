@@ -78,6 +78,8 @@ if __name__ == "__main__":
     parser.add_argument("--points",       default=1000,       type=int)
     parser.add_argument("--batch_size",   default=256,        type=int)
     parser.add_argument("--iterations",   default=1000,       type=int)
+    parser.add_argument("--finetuning",   default=1000,       type=int)
+    parser.add_argument("--episodes",     default=10,         type=int)
     parser.add_argument("--epochs",       default=5,          type=int)      # number of updates per iter
     args = parser.parse_args()
     run_experiment(args)

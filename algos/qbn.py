@@ -105,79 +105,6 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=5, max_tr
     return reward, len(obs_states), len(hid_states), len(cel_states)
   
 
-"""
-def train_lstm_qbn(policy, states, actions, hiddens, cells, epochs=10, batch_size=64, logger=None, layers=(512,256,64), lr=1e-4):
-  obs_qbn    = QBN(states.shape[-1],  layers=layers)
-  hidden_qbn = QBN(hiddens.shape[-1], layers=layers)
-  cell_qbn   = QBN(cells.shape[-1],   layers=layers)
-
-  obs_optim = optim.Adam(obs_qbn.parameters(), lr=lr, eps=1e-6)
-  hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=lr, eps=1e-6)
-  cell_optim = optim.Adam(cell_qbn.parameters(), lr=lr, eps=1e-6)
-
-  best_reward = None
-
-  for epoch in range(epochs):
-    random_indices = SubsetRandomSampler(range(states.shape[0]))
-    sampler = BatchSampler(random_indices, batch_size, drop_last=True)
-
-    epoch_obs_losses = []
-    epoch_hid_losses = []
-    epoch_cel_losses = []
-    for i, batch in enumerate(sampler):
-      batch_states  = states[batch]
-      batch_actions = actions[batch]
-      batch_hiddens = hiddens[batch]
-      batch_cells   = cells[batch]
-
-      obs_loss = 0.5 * (batch_states  - obs_qbn(batch_states)).pow(2).mean()
-      hid_loss = 0.5 * (batch_hiddens - hidden_qbn(batch_hiddens)).pow(2).mean()
-      cel_loss = 0.5 * (batch_cells   - cell_qbn(batch_cells)).pow(2).mean()
-
-      obs_optim.zero_grad()
-      obs_loss.backward()
-      obs_optim.step()
-
-      hidden_optim.zero_grad()
-      hid_loss.backward()
-      hidden_optim.step()
-
-      cell_optim.zero_grad()
-      cel_loss.backward()
-      cell_optim.step()
-
-      epoch_obs_losses.append(obs_loss.item())
-      epoch_hid_losses.append(hid_loss.item())
-      epoch_cel_losses.append(cel_loss.item())
-      print("batch {:3d} / {:3d}".format(i, len(sampler)), end='\r')
-
-    epoch_obs_losses = np.mean(epoch_obs_losses)
-    epoch_hid_losses = np.mean(epoch_hid_losses)
-    epoch_cel_losses = np.mean(epoch_cel_losses)
-
-    d_reward, s_states, h_states, c_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
-    n_reward, _, _, _                      = evaluate(policy)
-
-    if best_reward is None or d_reward > best_reward:
-      torch.save(obs_qbn, os.path.join(logger.dir, 'obsqbn.pt'))
-      torch.save(hidden_qbn, os.path.join(logger.dir, 'hidqbn.pt'))
-      torch.save(cell_qbn, os.path.join(logger.dir, 'celqbn.pt'))
-
-    print("{:7.5f} | {:7.5f} | {:7.5f} | states: {:5d} {:5d} {:5d} | QBN reward: {:5.1f} | nominal reward {:5.1f} ".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses, s_states, h_states, c_states, d_reward, n_reward))
-    if logger is not None:
-      logger.add_scalar(policy.env_name + '_qbn/obs_loss', epoch_obs_losses, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/hidden_loss', epoch_hid_losses, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/cell_loss', epoch_cel_losses, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/qbn_reward', d_reward, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/hidden_states', h_states, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/cell_states', c_states, epoch)
-
-  return obs_qbn, hidden_qbn, cell_qbn
-"""
-  
-
 def run_experiment(args):
   locale.setlocale(locale.LC_ALL, '')
 
@@ -223,6 +150,8 @@ def run_experiment(args):
 
   ray.init()
 
+  n_reward, _, _, _                      = evaluate(policy, episodes=20)
+  logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, 0)
   for iteration in range(args.iterations):
     data = ray.get([collect_data.remote(policy, args.points/args.workers, args.traj_len, np.random.randint(65535)) for _ in range(args.workers)])
     states  = np.vstack([r[0] for r in data])
@@ -270,26 +199,79 @@ def run_experiment(args):
 
     print("\nEvaluating...")
     d_reward, s_states, h_states, c_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
-    a_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
-    b_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=cell_qbn)
-    c_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=None)
-    n_reward, _, _, _                      = evaluate(policy)
+    a_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=cell_qbn)
+    b_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=None)
+    c_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=None)
 
     if best_reward is None or d_reward > best_reward:
       torch.save(obs_qbn, os.path.join(logger.dir, 'obsqbn.pt'))
       torch.save(hidden_qbn, os.path.join(logger.dir, 'hidqbn.pt'))
       torch.save(cell_qbn, os.path.join(logger.dir, 'celqbn.pt'))
 
-    print("Losses: {:7.5f} {:7.5f} {:7.5f} | States: {:5d} {:5d} {:5d} | QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.1f} ".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses, s_states, h_states, c_states, d_reward, a_reward, b_reward, c_reward, n_reward))
+    print("Losses: {:7.5f} {:7.5f} {:7.5f} | States: {:5d} {:5d} {:5d} | QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses, s_states, h_states, c_states, d_reward, a_reward, b_reward, c_reward, n_reward))
     if logger is not None:
       logger.add_scalar(policy.env_name + '_qbn/obs_loss',           epoch_obs_losses,iteration)
       logger.add_scalar(policy.env_name + '_qbn/hidden_loss',        epoch_hid_losses,iteration)
       logger.add_scalar(policy.env_name + '_qbn/cell_loss',          epoch_cel_losses,iteration)
       logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/nostate_reward',     a_reward, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/nohidden_reward',    b_reward, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/nocell_reward',      c_reward, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/nominal_reward',     n_reward, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',    a_reward, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  b_reward, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/stateonly_reward',   c_reward, iteration)
       logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, iteration)
       logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states, iteration)
       logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states, iteration)
+
+  print("Training phase over. Beginning finetuning.")
+
+  for iteration in range(args.finetuning):
+    losses = []
+    for ep in range(args.episodes):
+      env = env_fn()
+      state = torch.as_tensor(env.reset())
+
+      done = False
+      traj_len = 0
+      if hasattr(policy, 'init_hidden_state'):
+        policy.init_hidden_state()
+
+      reward = 0
+      while not done and traj_len < args.traj_len:
+        with torch.no_grad():
+          state        = torch.as_tensor(state).float()
+          norm_state   = policy.normalize_state(state, update=False)
+
+        hidden, cell = policy.hidden[0], policy.cells[0] # save hidden and cell states
+
+        # Compute qbn values
+        policy.hidden, policy.cells = [hidden_qbn(hidden)], [cell_qbn(cell)]
+        qbn_action                  = policy(obs_qbn(norm_state))
+
+        with torch.no_grad():
+          policy.hidden, policy.cells = [hidden], [cell]
+          action       = policy(norm_state)
+
+        state, r, done, _ = env.step(action.numpy())
+        reward += r
+        traj_len += 1
+
+        step_loss = 0.5 * (action - qbn_action).pow(2)
+        losses += [step_loss]
+    
+    losses = torch.stack(losses).mean()
+    losses.backward()
+    for opt in [obs_optim, hidden_optim, cell_optim]:
+      opt.zero_grad()
+      opt.step()
+
+    print("\nEvaluating...")
+    d_reward, s_states, h_states, c_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
+    a_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=cell_qbn)
+    b_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=None)
+    c_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=None)
+
+    print("Finetuning loss: {:7.5f} | States: {:5d} {:5d} {:5d} | QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(losses, s_states, h_states, c_states, d_reward, a_reward, b_reward, c_reward, n_reward))
+
+    if best_reward is None or d_reward > best_reward:
+      torch.save(obs_qbn, os.path.join(logger.dir, 'obsqbn.pt'))
+      torch.save(hidden_qbn, os.path.join(logger.dir, 'hidqbn.pt'))
+      torch.save(cell_qbn, os.path.join(logger.dir, 'celqbn.pt'))
