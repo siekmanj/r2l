@@ -127,5 +127,5 @@ def run_experiment(args):
       iter_losses.append(loss_total)
       print("Epoch {:3d} loss: {:7.6f} {:64s}".format(epoch, loss_total, ''))
     iter_loss = np.mean(iter_losses)
-    logger.add_scalar(logger.arg_hash + '/' + logger.taskname + '/loss', iter_loss, i)
+    logger.add_scalar(logger.arg_hash + '/loss', iter_loss, i)
 
