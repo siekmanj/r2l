@@ -135,6 +135,8 @@ def run_experiment(args):
 
   layers = [int(x) for x in args.layers.split(',')]
 
+  raise NotImplementedError
+
   if args.recurrent:
     print('Recurrent ', end='')
     q1 = LSTM_Q(obs_space, act_space, env_name=args.env, layers=layers)

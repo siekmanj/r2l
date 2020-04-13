@@ -87,7 +87,7 @@ if __name__ == "__main__":
 
   # Options common to all RL algorithms.
   parser.add_argument("--nolog",                  action='store_true')              # store log data or not.
-  parser.add_argument("--recurrent",      "-r",   action='store_true')              # whether to use a recurrent policy
+  parser.add_argument("--arch",           "-r",   default='ff')                     # either ff, lstm, or gru
   parser.add_argument("--seed",           "-s",   default=0,           type=int)    # random seed for reproducibility
   parser.add_argument("--traj_len",       "-tl",  default=1000,        type=int)    # max trajectory length for environment
   parser.add_argument("--env",            "-e",   default="Hopper-v3", type=str)    # environment to train on

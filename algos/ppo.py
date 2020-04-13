@@ -346,8 +346,8 @@ def run_experiment(args):
   from util.env import env_factory, train_normalizer
   from util.log import create_logger
 
-  from policies.critic import FF_V, LSTM_V
-  from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor
+  from policies.critic import FF_V, LSTM_V, GRU_V
+  from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor, GRU_Stochastic_Actor
 
   import locale, os
   locale.setlocale(locale.LC_ALL, '')
@@ -365,12 +365,17 @@ def run_experiment(args):
 
   layers = [int(x) for x in args.layers.split(',')]
 
-  if args.recurrent:
+  if args.arch.lower() == 'lstm':
     policy = LSTM_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
     critic = LSTM_V(obs_dim, layers=layers)
-  else:
+  elif args.arch.lower() == 'gru':
+    policy = GRU_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
+    critic = GRU_V(obs_dim, layers=layers)
+  elif args.arch.lower() == 'ff':
     policy = FF_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
     critic = FF_V(obs_dim, layers=layers)
+  else:
+    raise RuntimeError
 
   env = env_fn()
 

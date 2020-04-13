@@ -173,10 +173,14 @@ def run_experiment(args):
     if args.load_model is not None:
       return torch.load(args.load_model)
     else:
-      if not args.recurrent:
+      if not args.arch.lower() == 'ff':
         policy = Linear_Actor(obs_space, act_space, layers=layers).float()
-      else:
+      elif args.arch.lower() == 'lstm':
         policy = LSTM_Actor(obs_space, act_space, layers=layers).float()
+      elif args.arch.lower() == 'gru':
+        policy = GRU_Actor(obs_space, act_space, layers=layers).float()
+      else:
+        raise RuntimeError
 
       # policy parameters should be zero initialized according to ARS paper
       for p in policy.parameters():

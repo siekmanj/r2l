@@ -9,7 +9,7 @@ import time
 class DDPG():
   def __init__(self, actor, critic, args):
 
-    self.recurrent = args.recurrent
+    self.recurrent = False
 
     self.actor = actor
     self.critic = critic
