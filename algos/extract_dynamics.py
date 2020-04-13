@@ -29,7 +29,7 @@ def collect_point(policy, max_traj_len):
   env = env_factory(policy.env_name)()
   env.dynamics_randomization = True
 
-  chosen_timestep = np.random.randint(40, max_traj_len)
+  chosen_timestep = np.random.randint(20, max_traj_len)
   timesteps = 0
   done = False
 

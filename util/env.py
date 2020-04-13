@@ -47,7 +47,7 @@ def env_factory(path, verbose=False, **kwargs):
         clock = False
 
       if 'statehistory' in path or 'state_history' in path:
-        history=6
+        history=10
       else:
         history=0
 
@@ -86,13 +86,12 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
       env = env_factory(env_name)()
 
     reward_sum = 0
-    #env.dynamics_randomization = False
-    env.dynamics_randomization = True
+    env.dynamics_randomization = False
+    #env.dynamics_randomization = True
     total_t = 0
     episodes = 0
     while total_t < min_timesteps:
       state = env.reset()
-      #env.speed = 0
       done = False
       timesteps = 0
       eval_reward = 0
@@ -105,6 +104,8 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
 
+        env.speed = 0.5
+        env.side_speed = 0.0
         state = policy.normalize_state(state, update=False)
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
