@@ -85,6 +85,7 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
     else:
       env = env_factory(env_name)()
 
+    print("Policy is a: {}".format(policy.__class__.__name__))
     reward_sum = 0
     env.dynamics_randomization = False
     #env.dynamics_randomization = True
