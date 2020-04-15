@@ -231,7 +231,15 @@ def run_experiment(args):
       if layertype == 'LSTMCell':
         torch.save(cell_qbn, os.path.join(logger.dir, 'celqbn.pt'))
 
-    print("Losses: {:7.5f} {:7.5f} {:7.5f} | States: {:5d} {:5d} {:5d} | QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses, s_states, h_states, c_states, d_reward, a_reward, b_reward, c_reward, n_reward))
+    if layertype == 'LSTMCell':
+      print("Losses: {:7.5f} {:7.5f} {:7.5f}".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses))
+      print("States: {:5d} {:5d} {:5d}".format(s_states, h_states, c_states)) 
+      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, a_reward, b_reward, c_reward, n_reward))
+    else:
+      print("Losses: {:7.5f} {:7.5f}".format(epoch_obs_losses, epoch_hid_losses))
+      print("States: {:5d} {:5d} ".format(s_states, h_states))
+      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, b_reward, c_reward, n_reward))
+
     if logger is not None:
       logger.add_scalar(policy.env_name + '_qbn/obs_loss',           epoch_obs_losses,iteration)
       logger.add_scalar(policy.env_name + '_qbn/hidden_loss',        epoch_hid_losses,iteration)
