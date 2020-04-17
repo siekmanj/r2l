@@ -26,7 +26,8 @@ def get_hiddens(policy):
   return torch.cat([layer.view(-1) for layer in hiddens]).numpy()
   
 def collect_point(policy, max_traj_len):
-  env = env_factory(policy.env_name)()
+  legacy = 'legacy' if not (hasattr(policy, 'legacy') and policy.legacy == False) else ''
+  env = env_factory(policy.env_name + legacy)()
   env.dynamics_randomization = True
 
   chosen_timestep = np.random.randint(15, max_traj_len)
@@ -82,7 +83,8 @@ def run_experiment(args):
 
   policy = torch.load(args.policy)
 
-  env_fn = env_factory(policy.env_name)
+  legacy = 'legacy' if not (hasattr(policy, 'legacy') and policy.legacy == False) else ''
+  env_fn = env_factory(policy.env_name + legacy)
 
   layers = [int(x) for x in args.layers.split(',')]
 
