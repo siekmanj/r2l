@@ -97,7 +97,11 @@ def run_experiment(args):
 
   logger = create_logger(args)
 
-  ray.init()
+  if not ray.is_initialized():
+    if args.redis is not None:
+      ray.init(redis_address=args.redis)
+    else:
+      ray.init(num_cpus=args.workers)
   points_per_worker = max(args.points // args.workers, 1)
   for i in range(args.iterations):
     start = time.time()

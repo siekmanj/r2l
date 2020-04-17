@@ -57,6 +57,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr",           default=1e-5,           type=float)
     parser.add_argument("--epochs",       default=5,              type=int)
     parser.add_argument("--logdir",       default='logs/extract', type=str)
+    parser.add_argument("--redis",                default=None)
     args = parser.parse_args()
     run_experiment(args)
     exit()
