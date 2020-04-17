@@ -51,13 +51,18 @@ def env_factory(path, verbose=False, **kwargs):
       else:
         history=0
 
+      if 'legacy' in path:
+        legacy = True
+      else:
+        legacy = False
+
       if verbose:
         print("Created cassie env with arguments:")
         print("\tdynamics randomization: {}".format(dynamics_randomization))
         print("\tstate estimation:       {}".format(state_est))
         print("\tno delta:               {}".format(no_delta))
         print("\tclock based:            {}".format(clock))
-      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history)
+      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history, legacy=legacy)
 
     import gym
     spec = gym.envs.registry.spec(path)
@@ -79,9 +84,10 @@ def env_factory(path, verbose=False, **kwargs):
 
 def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, env=None, verbose=True):
   env_name = env
+  legacy = 'legacy' if not (hasattr(policy, 'legacy') and policy.legacy == False) else ''
   with torch.no_grad():
     if env_name is None:
-      env = env_factory(policy.env_name)()
+      env = env_factory(policy.env_name + legacy)()
     else:
       env = env_factory(env_name)()
 
