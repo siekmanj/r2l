@@ -29,7 +29,7 @@ def collect_point(policy, max_traj_len):
   env = env_factory(policy.env_name)()
   env.dynamics_randomization = True
 
-  chosen_timestep = np.random.randint(20, max_traj_len)
+  chosen_timestep = np.random.randint(15, max_traj_len)
   timesteps = 0
   done = False
 
@@ -47,7 +47,7 @@ def collect_point(policy, max_traj_len):
   return get_hiddens(policy), env.get_dynamics()
 
 @ray.remote
-def collect_data(policy, max_traj_len=150, points=500):
+def collect_data(policy, max_traj_len=45, points=500):
   policy = deepcopy(policy)
   torch.set_num_threads(1)
   with torch.no_grad():
@@ -55,6 +55,7 @@ def collect_data(policy, max_traj_len=150, points=500):
 
     latent = []
     label  = []
+    ts     = []
 
     last = time.time()
     while len(label) < points:
@@ -97,35 +98,63 @@ def run_experiment(args):
 
   logger = create_logger(args)
 
-  ray.init()
-  points_per_worker = max(args.points // args.workers, 1)
-  for i in range(args.iterations):
-    start = time.time()
+  best_loss = None
+  actor_dir = os.path.split(args.policy)[0]
+  create_new = True
+  if os.path.exists(os.path.join(actor_dir, 'test_latents.pt')):
+    x      = torch.load(os.path.join(actor_dir, 'train_latents.pt'))
+    y      = torch.load(os.path.join(actor_dir, 'train_labels.pt'))
+    test_x = torch.load(os.path.join(actor_dir, 'test_latents.pt'))
+    test_y = torch.load(os.path.join(actor_dir, 'test_labels.pt'))
+
+    if args.points > len(x) + len(y):
+      create_new = True
+    else:
+      create_new = False
+  
+  if create_new:
     print("Collecting {:4d} timesteps of data.".format(args.points))
+    ray.init()
+    points_per_worker = max(args.points // args.workers, 1)
+    start = time.time()
 
     x, y = concat(ray.get([collect_data.remote(policy, points=points_per_worker) for _ in range(args.workers)]))
 
-    print("{:3.2f} to collect {} timesteps".format(time.time() - start, len(x)))
+    split = int(0.8 * len(x))
 
-    iter_losses = []
-    for epoch in range(args.epochs):
+    test_x = x[split:]
+    test_y = y[split:]
+    x = x[:split]
+    y = y[:split]
 
-      random_indices = SubsetRandomSampler(range(len(x)-1))
-      sampler = BatchSampler(random_indices, args.batch_size, drop_last=False)
+    print("{:3.2f} to collect {} timesteps.  Training set is {}, test set is {}".format(time.time() - start, len(x)+len(test_x), len(x), len(test_x)))
+    torch.save(x, os.path.join(actor_dir, 'train_latents.pt'))
+    torch.save(y, os.path.join(actor_dir, 'train_labels.pt'))
+    torch.save(test_x, os.path.join(actor_dir, 'test_latents.pt'))
+    torch.save(test_y, os.path.join(actor_dir, 'test_labels.pt'))
 
-      for j, batch_idx in enumerate(sampler):
-        batch_x = x[batch_idx]#.float()
-        batch_y = y[batch_idx]#.float()
-        loss = 0.5 * (batch_y - model(batch_x)).pow(2).mean()
+  for epoch in range(args.epochs):
 
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
+    random_indices = SubsetRandomSampler(range(len(x)-1))
+    sampler = BatchSampler(random_indices, args.batch_size, drop_last=False)
 
-        print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(epoch, j, len(sampler)-1, loss.item()), end='\r')
-      loss_total = 0.5 * (y - model(x)).pow(2).mean().item()
-      iter_losses.append(loss_total)
-      print("Epoch {:3d} loss: {:7.6f} {:64s}".format(epoch, loss_total, ''))
-    iter_loss = np.mean(iter_losses)
-    logger.add_scalar(logger.arg_hash + '/loss', iter_loss, i)
+    for j, batch_idx in enumerate(sampler):
+      batch_x = x[batch_idx]#.float()
+      batch_y = y[batch_idx]#.float()
+      loss = 0.5 * (batch_y - model(batch_x)).pow(2).mean()
+
+      opt.zero_grad()
+      loss.backward()
+      opt.step()
+
+      print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(epoch, j, len(sampler)-1, loss.item()), end='\r')
+    loss_total = 0.5 * (y - model(x)).pow(2).mean().item()
+    test_loss  = 0.5 * (test_y - model(test_x)).pow(2).mean().item()
+    print("Epoch {:3d} loss: train {:7.6f} test {:7.6f} {:64s}".format(epoch, loss_total, test_loss, ''))
+    logger.add_scalar(logger.arg_hash + '/loss', test_loss, epoch)
+
+    if best_loss is None or test_loss < best_loss:
+      print("New best loss!")
+      torch.save(model, os.path.join(actor_dir, 'extractor.pt'))
+      best_loss = test_loss
 
