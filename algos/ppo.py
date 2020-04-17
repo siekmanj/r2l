@@ -377,6 +377,7 @@ def run_experiment(args):
   else:
     raise RuntimeError
 
+  policy.legacy = False
   env = env_fn()
 
   print("Collecting normalization statistics with {} states...".format(args.prenormalize_steps))
