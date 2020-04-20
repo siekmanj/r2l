@@ -166,51 +166,51 @@ def run_experiment(args):
 
   n_reward, _, _, _                      = evaluate(policy, episodes=20)
   logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, 0)
-  for iteration in range(args.iterations):
-    data = ray.get([collect_data.remote(policy, args.points/args.workers, args.traj_len, np.random.randint(65535)) for _ in range(args.workers)])
-    states  = np.vstack([r[0] for r in data])
-    actions = np.vstack([r[1] for r in data])
-    hiddens = np.vstack([r[2] for r in data])
-    if layertype == 'LSTMCell':
-      cells   = np.vstack([r[3] for r in data])
 
-    for epoch in range(args.epochs):
-      random_indices = SubsetRandomSampler(range(states.shape[0]))
-      sampler        = BatchSampler(random_indices, args.batch_size, drop_last=False)
+  data = ray.get([collect_data.remote(policy, args.dataset/args.workers, 400, np.random.randint(65535)) for _ in range(args.workers)])
+  states  = np.vstack([r[0] for r in data])
+  actions = np.vstack([r[1] for r in data])
+  hiddens = np.vstack([r[2] for r in data])
+  if layertype == 'LSTMCell':
+    cells   = np.vstack([r[3] for r in data])
 
-      epoch_obs_losses = []
-      epoch_hid_losses = []
-      epoch_cel_losses = []
-      for i, batch in enumerate(sampler):
-        batch_states  = torch.from_numpy(states[batch])
-        batch_actions = torch.from_numpy(actions[batch])
-        batch_hiddens = torch.from_numpy(hiddens[batch])
-        if layertype == 'LSTMCell':
-          batch_cells   = torch.from_numpy(cells[batch])
+  for epoch in range(args.epochs):
+    random_indices = SubsetRandomSampler(range(states.shape[0]))
+    sampler        = BatchSampler(random_indices, args.batch_size, drop_last=False)
 
-        obs_loss = 0.5 * (batch_states  - obs_qbn(batch_states)).pow(2).mean()
-        hid_loss = 0.5 * (batch_hiddens - hidden_qbn(batch_hiddens)).pow(2).mean()
-        if layertype == 'LSTMCell':
-          cel_loss = 0.5 * (batch_cells   - cell_qbn(batch_cells)).pow(2).mean()
+    epoch_obs_losses = []
+    epoch_hid_losses = []
+    epoch_cel_losses = []
+    for i, batch in enumerate(sampler):
+      batch_states  = torch.from_numpy(states[batch])
+      batch_actions = torch.from_numpy(actions[batch])
+      batch_hiddens = torch.from_numpy(hiddens[batch])
+      if layertype == 'LSTMCell':
+        batch_cells   = torch.from_numpy(cells[batch])
 
-        obs_optim.zero_grad()
-        obs_loss.backward()
-        obs_optim.step()
+      obs_loss = 0.5 * (batch_states  - obs_qbn(batch_states)).pow(2).mean()
+      hid_loss = 0.5 * (batch_hiddens - hidden_qbn(batch_hiddens)).pow(2).mean()
+      if layertype == 'LSTMCell':
+        cel_loss = 0.5 * (batch_cells   - cell_qbn(batch_cells)).pow(2).mean()
 
-        hidden_optim.zero_grad()
-        hid_loss.backward()
-        hidden_optim.step()
+      obs_optim.zero_grad()
+      obs_loss.backward()
+      obs_optim.step()
 
-        if layertype == 'LSTMCell':
-          cell_optim.zero_grad()
-          cel_loss.backward()
-          cell_optim.step()
+      hidden_optim.zero_grad()
+      hid_loss.backward()
+      hidden_optim.step()
 
-        epoch_obs_losses.append(obs_loss.item())
-        epoch_hid_losses.append(hid_loss.item())
-        if layertype == 'LSTMCell':
-          epoch_cel_losses.append(cel_loss.item())
-        print("epoch {:3d} / {:3d}, batch {:3d} / {:3d}".format(epoch+1, args.epochs, i+1, len(sampler)), end='\r')
+      if layertype == 'LSTMCell':
+        cell_optim.zero_grad()
+        cel_loss.backward()
+        cell_optim.step()
+
+      epoch_obs_losses.append(obs_loss.item())
+      epoch_hid_losses.append(hid_loss.item())
+      if layertype == 'LSTMCell':
+        epoch_cel_losses.append(cel_loss.item())
+      print("epoch {:3d} / {:3d}, batch {:3d} / {:3d}".format(epoch+1, args.epochs, i+1, len(sampler)), end='\r')
 
     epoch_obs_losses = np.mean(epoch_obs_losses)
     epoch_hid_losses = np.mean(epoch_hid_losses)
@@ -241,21 +241,21 @@ def run_experiment(args):
       print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, b_reward, c_reward, n_reward))
 
     if logger is not None:
-      logger.add_scalar(policy.env_name + '_qbn/obs_loss',           epoch_obs_losses,iteration)
-      logger.add_scalar(policy.env_name + '_qbn/hidden_loss',        epoch_hid_losses,iteration)
-      logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward, iteration)
+      logger.add_scalar(policy.env_name + '_qbn/obs_loss',           epoch_obs_losses, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/hidden_loss',        epoch_hid_losses, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward, epoch)
       if layertype == 'LSTMCell':
-        logger.add_scalar(policy.env_name + '_qbn/cell_loss',          epoch_cel_losses,iteration)
-        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',    a_reward, iteration)
-        logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  b_reward, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/stateonly_reward',   c_reward, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states, iteration)
+        logger.add_scalar(policy.env_name + '_qbn/cell_loss',          epoch_cel_losses, epoch)
+        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',    a_reward, epoch)
+        logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  b_reward, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/stateonly_reward',   c_reward, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states, epoch)
 
   print("Training phase over. Beginning finetuning.")
 
-  for fine_iter in range(args.finetuning):
+  for fine_iter in range(args.iterations):
     losses = []
     for ep in range(args.episodes):
       env = env_fn()
