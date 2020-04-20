@@ -167,7 +167,7 @@ def run_experiment(args):
   n_reward, _, _, _                      = evaluate(policy, episodes=20)
   logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, 0)
 
-  data = ray.get([collect_data.remote(policy, args.dataset/args.workers, args.traj_len, np.random.randint(65535)) for _ in range(args.workers)])
+  data = ray.get([collect_data.remote(policy, args.dataset/args.workers, 400, np.random.randint(65535)) for _ in range(args.workers)])
   states  = np.vstack([r[0] for r in data])
   actions = np.vstack([r[1] for r in data])
   hiddens = np.vstack([r[2] for r in data])
