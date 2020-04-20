@@ -103,7 +103,8 @@ def run_experiment(args):
   best_loss = None
   actor_dir = os.path.split(args.policy)[0]
   create_new = True
-  if os.path.exists(os.path.join(actor_dir, 'test_latents.pt')):
+  #if os.path.exists(os.path.join(actor_dir, 'test_latents.pt')):
+  if False:
     x      = torch.load(os.path.join(actor_dir, 'train_latents.pt'))
     y      = torch.load(os.path.join(actor_dir, 'train_labels.pt'))
     test_x = torch.load(os.path.join(actor_dir, 'test_latents.pt'))
