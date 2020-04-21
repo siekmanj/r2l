@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-import locale, os
+import locale, os, time
 
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 from copy import deepcopy
@@ -162,31 +162,69 @@ def run_experiment(args):
   else:
     logger = None
 
+  actor_dir = os.path.split(args.policy)[0]
+
   ray.init()
 
   n_reward, _, _, _                      = evaluate(policy, episodes=20)
   logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, 0)
 
-  data = ray.get([collect_data.remote(policy, args.dataset/args.workers, 400, np.random.randint(65535)) for _ in range(args.workers)])
-  states  = np.vstack([r[0] for r in data])
-  actions = np.vstack([r[1] for r in data])
-  hiddens = np.vstack([r[2] for r in data])
-  if layertype == 'LSTMCell':
-    cells   = np.vstack([r[3] for r in data])
+  if os.path.exists(os.path.join(actor_dir, 'train_states.pt')):
+    states  = torch.load(os.path.join(actor_dir, 'train_states.pt'))
+    actions = torch.load(os.path.join(actor_dir, 'train_actions.pt'))
+    hiddens = torch.load(os.path.join(actor_dir, 'train_hiddens.pt'))
+
+    test_states  = torch.load(os.path.join(actor_dir, 'test_states.pt'))
+    test_actions = torch.load(os.path.join(actor_dir, 'test_actions.pt'))
+    test_hiddens = torch.load(os.path.join(actor_dir, 'test_hiddens.pt'))
+
+    if layertype == 'LSTMCell':
+      cells      = torch.load(os.path.join(actor_dir, 'train_cells.pt'))
+      test_cells = torch.load(os.path.join(actor_dir, 'test_cells.pt'))
+  else:
+    start = time.time()
+    data = ray.get([collect_data.remote(policy, args.dataset/args.workers, 400, np.random.randint(65535)) for _ in range(args.workers)])
+    states  = torch.from_numpy(np.vstack([r[0] for r in data]))
+    actions = torch.from_numpy(np.vstack([r[1] for r in data]))
+    hiddens = torch.from_numpy(np.vstack([r[2] for r in data]))
+    if layertype == 'LSTMCell':
+      cells   = torch.from_numpy(np.vstack([r[3] for r in data]))
+
+    split = int(0.8 * len(states))
+
+    train_states, test_states   = states[:split], states[split:]
+    train_actions, test_actions = actions[:split], actions[split:]
+    train_hiddens, test_hiddens = hiddens[:split], hiddens[split:]
+    if layertype == 'LSTMCell':
+      train_cells, test_cells = cells[:split], cells[split:]
+
+    print("{:3.2f} to collect {} timesteps.  Training set is {}, test set is {}".format(time.time() - start, len(states), len(train_states), len(test_states)))
+
+    torch.save(train_states, os.path.join(actor_dir, 'train_states.pt'))
+    torch.save(train_actions, os.path.join(actor_dir, 'train_actions.pt'))
+    torch.save(train_hiddens, os.path.join(actor_dir, 'train_hiddens.pt'))
+    if layertype == 'LSTMCell':
+      torch.save(train_cells, os.path.join(actor_dir, 'train_cells.pt'))
+
+    torch.save(test_states, os.path.join(actor_dir, 'test_states.pt'))
+    torch.save(test_actions, os.path.join(actor_dir, 'test_actions.pt'))
+    torch.save(test_hiddens, os.path.join(actor_dir, 'test_hiddens.pt'))
+    if layertype == 'LSTMCell':
+      torch.save(test_cells, os.path.join(actor_dir, 'test_cells.pt'))
 
   for epoch in range(args.epochs):
-    random_indices = SubsetRandomSampler(range(states.shape[0]))
+    random_indices = SubsetRandomSampler(range(train_states.shape[0]))
     sampler        = BatchSampler(random_indices, args.batch_size, drop_last=False)
 
     epoch_obs_losses = []
     epoch_hid_losses = []
     epoch_cel_losses = []
     for i, batch in enumerate(sampler):
-      batch_states  = torch.from_numpy(states[batch])
-      batch_actions = torch.from_numpy(actions[batch])
-      batch_hiddens = torch.from_numpy(hiddens[batch])
+      batch_states  = train_states[batch]
+      batch_actions = train_actions[batch]
+      batch_hiddens = train_hiddens[batch]
       if layertype == 'LSTMCell':
-        batch_cells   = torch.from_numpy(cells[batch])
+        batch_cells   = train_cells[batch]
 
       obs_loss = 0.5 * (batch_states  - obs_qbn(batch_states)).pow(2).mean()
       hid_loss = 0.5 * (batch_hiddens - hidden_qbn(batch_hiddens)).pow(2).mean()
@@ -212,10 +250,17 @@ def run_experiment(args):
         epoch_cel_losses.append(cel_loss.item())
       print("epoch {:3d} / {:3d}, batch {:3d} / {:3d}".format(epoch+1, args.epochs, i+1, len(sampler)), end='\r')
 
+    
     epoch_obs_losses = np.mean(epoch_obs_losses)
     epoch_hid_losses = np.mean(epoch_hid_losses)
     if layertype == 'LSTMCell':
       epoch_cel_losses = np.mean(epoch_cel_losses)
+
+    with torch.no_grad():
+      state_loss = 0.5 * (test_states - obs_qbn(test_states)).pow(2).mean()
+      hidden_loss = 0.5 * (test_hiddens - hidden_qbn(test_hiddens)).pow(2).mean()
+      if layertype == 'LSTMCell':
+        cell_loss = 0.5 * (test_cells - cell_qbn(test_cells)).pow(2).mean()
 
     print("\nEvaluating...")
     d_reward, s_states, h_states, c_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
@@ -232,22 +277,22 @@ def run_experiment(args):
         torch.save(cell_qbn, os.path.join(logger.dir, 'celqbn.pt'))
 
     if layertype == 'LSTMCell':
-      print("Losses: {:7.5f} {:7.5f} {:7.5f}".format(epoch_obs_losses, epoch_hid_losses, epoch_cel_losses))
+      print("Losses: {:7.5f} {:7.5f} {:7.5f}".format(state_loss, hidden_loss, cell_loss))
       print("States: {:5d} {:5d} {:5d}".format(s_states, h_states, c_states)) 
       print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, a_reward, b_reward, c_reward, n_reward))
     else:
-      print("Losses: {:7.5f} {:7.5f}".format(epoch_obs_losses, epoch_hid_losses))
+      print("Losses: {:7.5f} {:7.5f}".format(state_loss, hidden_loss))
       print("States: {:5d} {:5d} ".format(s_states, h_states))
       print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, b_reward, c_reward, n_reward))
 
     if logger is not None:
-      logger.add_scalar(policy.env_name + '_qbn/obs_loss',           epoch_obs_losses, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/hidden_loss',        epoch_hid_losses, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/obs_loss',           state_loss, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/hidden_loss',        hidden_loss, epoch)
       logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward, epoch)
       if layertype == 'LSTMCell':
-        logger.add_scalar(policy.env_name + '_qbn/cell_loss',          epoch_cel_losses, epoch)
-        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',    a_reward, epoch)
-        logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states, epoch)
+        logger.add_scalar(policy.env_name + '_qbn/cell_loss',        cell_loss, epoch)
+        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',  a_reward, epoch)
+        logger.add_scalar(policy.env_name + '_qbn/cell_states',      c_states, epoch)
       logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  b_reward, epoch)
       logger.add_scalar(policy.env_name + '_qbn/stateonly_reward',   c_reward, epoch)
       logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, epoch)
