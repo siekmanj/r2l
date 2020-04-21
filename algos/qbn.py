@@ -300,6 +300,11 @@ def run_experiment(args):
 
   print("Training phase over. Beginning finetuning.")
 
+  obs_optim    = optim.Adam(obs_qbn.parameters(), lr=args.lr, eps=1e-6)
+  hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=args.lr, eps=1e-6)
+  if layertype == 'LSTMCell':
+    cell_optim   = optim.Adam(cell_qbn.parameters(), lr=args.lr, eps=1e-6)
+
   for fine_iter in range(args.iterations):
     losses = []
     for ep in range(args.episodes):
@@ -356,7 +361,7 @@ def run_experiment(args):
     d_reward, s_states, h_states, c_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
     a_reward = 0.0
     if layertype == 'LSTMCell':
-      a_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=cell_qbn)
+      a_reward, _, _, _                    = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=cell_qbn)
     b_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=None)
     c_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=None)
 
