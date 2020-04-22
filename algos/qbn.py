@@ -375,15 +375,15 @@ def run_experiment(args):
       print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, b_reward, c_reward, n_reward))
 
     if logger is not None:
-      logger.add_scalar(policy.env_name + '_qbn/finetune_loss',      losses.item(), iteration + fine_iter)
-      logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward,      iteration + fine_iter)
+      logger.add_scalar(policy.env_name + '_qbn/finetune_loss',      losses.item(), epoch + fine_iter)
+      logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward,      epoch + fine_iter)
       if layertype == 'LSTMCell':
-        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',    a_reward, iteration)
-        logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  b_reward, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/stateonly_reward',   c_reward, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, iteration)
-      logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states, iteration)
+        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',    a_reward, epoch)
+        logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  b_reward, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/stateonly_reward',   c_reward, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states, epoch)
 
     if best_reward is None or d_reward > best_reward:
       torch.save(obs_qbn, os.path.join(logger.dir, 'obsqbn.pt'))
