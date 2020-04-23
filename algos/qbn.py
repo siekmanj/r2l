@@ -170,16 +170,16 @@ def run_experiment(args):
   logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, 0)
 
   if os.path.exists(os.path.join(actor_dir, 'train_states.pt')):
-    states  = torch.load(os.path.join(actor_dir, 'train_states.pt'))
-    actions = torch.load(os.path.join(actor_dir, 'train_actions.pt'))
-    hiddens = torch.load(os.path.join(actor_dir, 'train_hiddens.pt'))
+    train_states  = torch.load(os.path.join(actor_dir, 'train_states.pt'))
+    train_actions = torch.load(os.path.join(actor_dir, 'train_actions.pt'))
+    train_hiddens = torch.load(os.path.join(actor_dir, 'train_hiddens.pt'))
 
     test_states  = torch.load(os.path.join(actor_dir, 'test_states.pt'))
     test_actions = torch.load(os.path.join(actor_dir, 'test_actions.pt'))
     test_hiddens = torch.load(os.path.join(actor_dir, 'test_hiddens.pt'))
 
     if layertype == 'LSTMCell':
-      cells      = torch.load(os.path.join(actor_dir, 'train_cells.pt'))
+      train_cells      = torch.load(os.path.join(actor_dir, 'train_cells.pt'))
       test_cells = torch.load(os.path.join(actor_dir, 'test_cells.pt'))
   else:
     start = time.time()
