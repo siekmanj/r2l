@@ -47,7 +47,7 @@ def env_factory(path, verbose=False, **kwargs):
         clock = False
 
       if 'statehistory' in path or 'state_history' in path:
-        history=10
+        history=1
       else:
         history=0
 

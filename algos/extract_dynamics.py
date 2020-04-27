@@ -105,10 +105,10 @@ def run_experiment(args):
   create_new = True
   #if os.path.exists(os.path.join(actor_dir, 'test_latents.pt')):
   if False:
-    x      = torch.load(os.path.join(actor_dir, 'train_latents.pt'))
-    y      = torch.load(os.path.join(actor_dir, 'train_labels.pt'))
-    test_x = torch.load(os.path.join(actor_dir, 'test_latents.pt'))
-    test_y = torch.load(os.path.join(actor_dir, 'test_labels.pt'))
+    x      = torch.load(os.path.join(logger.dir, 'train_latents.pt'))
+    y      = torch.load(os.path.join(logger.dir, 'train_labels.pt'))
+    test_x = torch.load(os.path.join(logger.dir, 'test_latents.pt'))
+    test_y = torch.load(os.path.join(logger.dir, 'test_labels.pt'))
 
     if args.points > len(x) + len(y):
       create_new = True
@@ -136,10 +136,10 @@ def run_experiment(args):
     y = y[:split]
 
     print("{:3.2f} to collect {} timesteps.  Training set is {}, test set is {}".format(time.time() - start, len(x)+len(test_x), len(x), len(test_x)))
-    torch.save(x, os.path.join(actor_dir, 'train_latents.pt'))
-    torch.save(y, os.path.join(actor_dir, 'train_labels.pt'))
-    torch.save(test_x, os.path.join(actor_dir, 'test_latents.pt'))
-    torch.save(test_y, os.path.join(actor_dir, 'test_labels.pt'))
+    torch.save(x, os.path.join(logger.dir, 'train_latents.pt'))
+    torch.save(y, os.path.join(logger.dir, 'train_labels.pt'))
+    torch.save(test_x, os.path.join(logger.dir, 'test_latents.pt'))
+    torch.save(test_y, os.path.join(logger.dir, 'test_labels.pt'))
 
   for epoch in range(args.epochs):
 
@@ -163,6 +163,6 @@ def run_experiment(args):
 
     if best_loss is None or test_loss < best_loss:
       print("New best loss!")
-      torch.save(model, os.path.join(actor_dir, 'extractor.pt'))
+      torch.save(model, os.path.join(logger.dir, 'extractor.pt'))
       best_loss = test_loss
 

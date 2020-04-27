@@ -194,7 +194,7 @@ if __name__ == "__main__":
     parser.add_argument('--std',                    default=0.13,          type=float)    # the fixed exploration std
     parser.add_argument("--a_lr",           "-alr", default=1e-4,          type=float)    # adam learning rate for actor
     parser.add_argument("--c_lr",           "-clr", default=1e-4,          type=float)    # adam learning rate for critic
-    parser.add_argument("--eps",            "-ep",  default=1e-5,          type=float)    # adam eps
+    parser.add_argument("--eps",            "-ep",  default=1e-6,          type=float)    # adam eps
     parser.add_argument("--kl",                     default=0.02,          type=float)    # kl abort threshold
     parser.add_argument("--entropy_coeff",          default=0.0,           type=float)
     parser.add_argument("--grad_clip",              default=0.05,          type=float)
