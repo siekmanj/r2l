@@ -8,9 +8,16 @@ This repo contains recurrent implementations of state-of-the-art RL algorithms. 
 
 In addition to recurrent reinforcement learning, it also provides algorithms for extracting interesting information out of recurrent policy networks. Implemented are system-ID decoding networks for use with policy networks trained with dynamics randomization (described (described in an upcoming RSS paper) and also for Quantized-Bottleneck Network insertion (described [here](https://arxiv.org/abs/1811.12530)).
 
+## First-time setup
 This repo assumes that you have [OpenAI Gym](https://gym.openai.com/) and [MuJoCo 2.0](http://www.mujoco.org/) installed, and that you are using Ubuntu 18.04, as this is my development environment (similar distros may also work). If you would like to do experiments with the simulated Cassie environment, you will also need my [Cassie](https://github.com/siekmanj/cassie) repository.
 
-## First-time setup
+You will need to install several packages:
+```bash
+pip3 install --user torch numpy ray gym tensorboard
+sudo apt-get install -y curl git libgl1-mesa-dev libgl1-mesa-glx libglew-dev libosmesa6-dev net-tools unzip vim wget xpra xserver-xorg-dev patchelf
+```
+
+
 If you haven't already, clone my repo:
 
 ```bash
@@ -23,7 +30,7 @@ Optionally, you can clone the Cassie directory to do experiments with the Cassie
 git clone https://github.com/siekmanj/cassie
 ```
 
-Now, you will need to install MuJoCo. To unzip a .zip file, you may need to install `unzip` with `sudo apt install unzip`. You will also need to obtain a license key `mjkey.txt` from the [official website](https://www.roboti.us/license.html). You can get a free 30-day trial if necessary.
+Now, you will need to install MuJoCo. You will also need to obtain a license key `mjkey.txt` from the [official website](https://www.roboti.us/license.html). You can get a free 30-day trial if necessary.
 ```bash
 wget https://www.roboti.us/download/mujoco200_linux.zip
 unzip mujoco200_linux.zip
@@ -37,12 +44,6 @@ You will need to create an environment variable `LD_LIBRARY_PATH` to allow mujoc
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco200/bin
 ```
 
-You will need to install several packages:
-```bash
-pip3 install --user torch numpy ray gym tensorboard
-sudo apt-get install -y curl git libgl1-mesa-dev libgl1-mesa-glx libglew-dev libosmesa6-dev net-tools unzip vim wget xpra xserver-xorg-dev patchelf
-```
-
 Now that the prerequisites are installed, you can install `mujoco-py`.
 ```bash
 pip3 install --user mujoco-py
@@ -53,10 +54,10 @@ pip3 install --user mujoco-py
 ### Basics
 Any algorithm can be run from the r2l.py entry point.
 
-To train an LSTM agent on the HalfCheetah-v2 environment and save the resulting policy to some directory, simply run:
+To train a GRU agent on the HalfCheetah-v2 environment and save the resulting policy to some directory, simply run:
 
 ```bash
-python3 r2l.py ppo --env HalfCheetah-v2 --arch lstm --save_actor cheetah.pt --batch_size 6
+python3 r2l.py ppo --env 'HalfCheetah-v2' --arch gru --save_actor cheetah.pt --layers 64 --batch_size 6 --num_steps 10000 --prenormalize_steps 100
 ```
 
 Then, to do QBN insertion on this policy, simply run
@@ -72,9 +73,9 @@ After initiating an experiment, your directory structure would look like this:
 
 ```
 logs/
-├── ppo
-│   └── <env_name> 
-│           └── [New Experiment Logdir]
+├── [algo]
+│     └── <env name> 
+│             └── [New Experiment Logdir]
 └── ddpg
 ```
 

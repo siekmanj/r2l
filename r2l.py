@@ -76,10 +76,10 @@ if __name__ == "__main__":
     parser.add_argument("--traj_len",     default=1000,         type=int)
     parser.add_argument("--layers",       default="512,256,64", type=str) 
     parser.add_argument("--lr",           default=1e-5,         type=float)
-    parser.add_argument("--dataset",      default=1000000,      type=int)
-    parser.add_argument("--epochs",       default=2000,         type=int)      # number of updates per iter
-    parser.add_argument("--batch_size",   default=256,          type=int)
-    parser.add_argument("--iterations",   default=1000,         type=int)
+    parser.add_argument("--dataset",      default=100000,       type=int)
+    parser.add_argument("--epochs",       default=500,          type=int)      # number of updates per iter
+    parser.add_argument("--batch_size",   default=64,           type=int)
+    parser.add_argument("--iterations",   default=500,          type=int)
     parser.add_argument("--episodes",     default=64,           type=int)
     args = parser.parse_args()
     run_experiment(args)
