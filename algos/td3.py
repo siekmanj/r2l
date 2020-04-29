@@ -7,7 +7,7 @@ import random
 
 class TD3():
   def __init__(self, actor, q1, q2, args):
-    self.recurrent = args.recurrent
+    self.recurrent = args.arch.lower() == 'lstm' or args.recurrent.lower() == 'gru'
 
     self.actor  = actor
     self.q1 = q1

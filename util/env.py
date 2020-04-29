@@ -47,9 +47,14 @@ def env_factory(path, verbose=False, **kwargs):
         clock = False
 
       if 'statehistory' in path or 'state_history' in path:
-        history=6
+        history=1
       else:
         history=0
+
+      if 'legacy' in path:
+        legacy = True
+      else:
+        legacy = False
 
       if verbose:
         print("Created cassie env with arguments:")
@@ -57,7 +62,7 @@ def env_factory(path, verbose=False, **kwargs):
         print("\tstate estimation:       {}".format(state_est))
         print("\tno delta:               {}".format(no_delta))
         print("\tclock based:            {}".format(clock))
-      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history)
+      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history, legacy=legacy)
 
     import gym
     spec = gym.envs.registry.spec(path)
@@ -79,12 +84,14 @@ def env_factory(path, verbose=False, **kwargs):
 
 def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, env=None, verbose=True):
   env_name = env
+  legacy = 'legacy' if not (hasattr(policy, 'legacy') and policy.legacy == False) else ''
   with torch.no_grad():
     if env_name is None:
-      env = env_factory(policy.env_name)()
+      env = env_factory(policy.env_name + legacy)()
     else:
       env = env_factory(env_name)()
 
+    print("Policy is a: {}".format(policy.__class__.__name__))
     reward_sum = 0
     env.dynamics_randomization = False
     #env.dynamics_randomization = True
@@ -92,7 +99,6 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
     episodes = 0
     while total_t < min_timesteps:
       state = env.reset()
-      #env.speed = 0
       done = False
       timesteps = 0
       eval_reward = 0
@@ -105,6 +111,8 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
 
+        env.speed = 0.5
+        env.side_speed = 0.0
         state = policy.normalize_state(state, update=False)
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
