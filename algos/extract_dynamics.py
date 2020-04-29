@@ -45,7 +45,7 @@ def collect_point(policy, max_traj_len):
     state, _, done, _ = env.step(action)
     timesteps += 1
 
-  return get_hiddens(policy), env.get_dynamics()
+  return get_hiddens(policy), env.get_friction(), env.get_damping(), env.get_mass(), env.get_quat()
 
 @ray.remote
 def collect_data(policy, max_traj_len=45, points=500):
@@ -54,27 +54,44 @@ def collect_data(policy, max_traj_len=45, points=500):
   with torch.no_grad():
     done = True
 
+    frics  = []
+    damps  = []
+    masses = []
+    quats  = []
+
     latent = []
-    label  = []
     ts     = []
 
     last = time.time()
-    while len(label) < points:
-      x, y = collect_point(policy, max_traj_len)
-      latent += [x]
-      label  += [y]
-    return latent, label
+    while len(latent) < points:
+      x, f, d, m, q = collect_point(policy, max_traj_len)
+      frics   += [f]
+      damps   += [d]
+      masses  += [m]
+      quats   += [q]
+      latent  += [x]
+    return frics, damps, masses, quats, latent
   
 def concat(datalist):
-  latents = []
-  labels  = []
+  frics    = []
+  damps    = []
+  masses   = []
+  quats    = []
+  latents  = []
   for l in datalist:
-    latent, label = l
+    fric, damp, mass, quat, latent = l
+    frics  += fric
+    damps  += damp
+    masses += mass
+    quats  += quat
+
     latents += latent
-    labels  += label
+  frics   = torch.tensor(frics).float()
+  damps   = torch.tensor(damps).float()
+  masses  = torch.tensor(masses).float()
+  quats   = torch.tensor(quats).float()
   latents = torch.tensor(latents).float()
-  labels  = torch.tensor(labels).float()
-  return latents, labels
+  return frics, damps, masses, quats, latents
 
 def run_experiment(args):
   from util.log import create_logger
@@ -91,12 +108,15 @@ def run_experiment(args):
   env = env_fn()
   policy.init_hidden_state()
   policy(torch.tensor(env.reset()).float())
-
   latent_dim = get_hiddens(policy).shape[0]
-  output_dim = env.get_dynamics().shape[0]
-  model      = Model(latent_dim, output_dim, layers=layers)
 
-  opt = optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
+  models = []
+  opts   = []
+  for fn in [env.get_friction, env.get_damping, env.get_mass, env.get_quat]:
+    output_dim = fn().shape[0]
+    model = Model(latent_dim, output_dim, layers=layers)
+    models += [model]
+    opts   += [optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)]
 
   logger = create_logger(args)
 
@@ -106,9 +126,19 @@ def run_experiment(args):
   #if os.path.exists(os.path.join(actor_dir, 'test_latents.pt')):
   if False:
     x      = torch.load(os.path.join(logger.dir, 'train_latents.pt'))
-    y      = torch.load(os.path.join(logger.dir, 'train_labels.pt'))
     test_x = torch.load(os.path.join(logger.dir, 'test_latents.pt'))
-    test_y = torch.load(os.path.join(logger.dir, 'test_labels.pt'))
+
+    train_frics  = torch.load(os.path.join(logger.dir, 'train_frics.pt'))
+    test_frics   = torch.load(os.path.join(logger.dir, 'test_frics.pt'))
+
+    train_damps  = torch.load(os.path.join(logger.dir, 'train_damps.pt'))
+    test_damps   = torch.load(os.path.join(logger.dir, 'test_damps.pt'))
+
+    train_masses = torch.load(os.path.join(logger.dir, 'train_masses.pt'))
+    test_masses  = torch.load(os.path.join(logger.dir, 'test_masses.pt'))
+
+    train_quats  = torch.load(os.path.join(logger.dir, 'train_quats.pt'))
+    test_quats   = torch.load(os.path.join(logger.dir, 'test_quats.pt'))
 
     if args.points > len(x) + len(y):
       create_new = True
@@ -126,20 +156,40 @@ def run_experiment(args):
     points_per_worker = max(args.points // args.workers, 1)
     start = time.time()
 
-    x, y = concat(ray.get([collect_data.remote(policy, points=points_per_worker) for _ in range(args.workers)]))
+    frics, damps, masses, quats, x = concat(ray.get([collect_data.remote(policy, points=points_per_worker) for _ in range(args.workers)]))
 
     split = int(0.8 * len(x))
 
     test_x = x[split:]
-    test_y = y[split:]
     x = x[:split]
-    y = y[:split]
+
+    test_frics = frics[split:]
+    frics = frics[:split]
+
+    test_damps = damps[split:]
+    damps = damps[:split]
+
+    test_masses = masses[split:]
+    masses = masses[:split]
+
+    test_quats = quats[split:]
+    quats = quats[:split]
 
     print("{:3.2f} to collect {} timesteps.  Training set is {}, test set is {}".format(time.time() - start, len(x)+len(test_x), len(x), len(test_x)))
     torch.save(x, os.path.join(logger.dir, 'train_latents.pt'))
-    torch.save(y, os.path.join(logger.dir, 'train_labels.pt'))
     torch.save(test_x, os.path.join(logger.dir, 'test_latents.pt'))
-    torch.save(test_y, os.path.join(logger.dir, 'test_labels.pt'))
+
+    torch.save(frics, os.path.join(logger.dir, 'train_frics.pt'))
+    torch.save(test_frics, os.path.join(logger.dir, 'test_frics.pt'))
+
+    torch.save(damps, os.path.join(logger.dir, 'train_damps.pt'))
+    torch.save(test_damps, os.path.join(logger.dir, 'test_damps.pt'))
+
+    torch.save(masses, os.path.join(logger.dir, 'train_masses.pt'))
+    torch.save(test_masses, os.path.join(logger.dir, 'test_masses.pt'))
+
+    torch.save(quats, os.path.join(logger.dir, 'train_quats.pt'))
+    torch.save(test_quats, os.path.join(logger.dir, 'test_quats.pt'))
 
   for epoch in range(args.epochs):
 
@@ -148,21 +198,41 @@ def run_experiment(args):
 
     for j, batch_idx in enumerate(sampler):
       batch_x = x[batch_idx]#.float()
-      batch_y = y[batch_idx]#.float()
-      loss = 0.5 * (batch_y - model(batch_x)).pow(2).mean()
+      #batch_fric = frics[batch_idx]
+      #batch_damp = damps[batch_idx]
+      #batch_mass = masses[batch_idx]
+      #batch_quat = quats[batch_idx]
+      batch = [frics[batch_idx], damps[batch_idx], masses[batch_idx], quats[batch_idx]]
 
-      opt.zero_grad()
-      loss.backward()
-      opt.step()
+      losses = []
+      for model, batch_y, opt in zip(models, batch, opts):
+        loss = 0.5 * (batch_y - model(batch_x)).pow(2).mean()
 
-      print("Epoch {:3d} batch {:4d}/{:4d}: {:6.5f}".format(epoch, j, len(sampler)-1, loss.item()), end='\r')
-    loss_total = 0.5 * (y - model(x)).pow(2).mean().item()
-    test_loss  = 0.5 * (test_y - model(test_x)).pow(2).mean().item()
-    print("Epoch {:3d} loss: train {:7.6f} test {:7.6f} {:64s}".format(epoch, loss_total, test_loss, ''))
-    logger.add_scalar(logger.arg_hash + '/loss', test_loss, epoch)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        
+        losses.append(loss.item())
 
-    if best_loss is None or test_loss < best_loss:
-      print("New best loss!")
-      torch.save(model, os.path.join(logger.dir, 'extractor.pt'))
-      best_loss = test_loss
+      print("Epoch {:3d} batch {:4d}/{:4d}      ".format(epoch, j, len(sampler)-1), end='\r')
+
+    train_y = [frics, damps, masses, quats]
+    test_y  = [test_frics, test_damps, test_masses, test_quats]
+    order   = ['friction', 'damping', 'mass', 'slope']
+
+    with torch.no_grad():
+      print("\nEpoch {:3d} losses:".format(epoch))
+      for model, y_tr, y_te, name in zip(models, train_y, test_y, order):
+        loss_total = 0.5 * (y_tr - model(x)).pow(2).mean().item()
+
+        preds = model(test_x)
+        test_loss  = 0.5 * (y_te - preds).pow(2).mean().item()
+        pce = torch.mean(torch.abs((y_te - preds)/y_te))
+        err = torch.mean(torch.abs((y_te - preds)))
+        
+        logger.add_scalar(logger.arg_hash + '/' + name + '_loss', test_loss, epoch)
+        logger.add_scalar(logger.arg_hash + '/' + name + '_percenterr', pce, epoch)
+        logger.add_scalar(logger.arg_hash + '/' + name + '_abserr', err, epoch)
+        torch.save(model, os.path.join(logger.dir, name + '_extractor.pt'))
+        print("\t{:16s}: train {:7.6f} test {:7.6f}".format(name, loss_total, test_loss))
 
