@@ -59,7 +59,7 @@ def collect_data(actor, timesteps, max_traj_len, seed):
     return [states, actions, hiddens, cells]
 
 
-def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=5, max_traj_len=1000):
+def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, episodes=5, max_traj_len=1000):
   with torch.no_grad():
     env = env_factory(actor.env_name)()
     reward = 0
@@ -68,6 +68,7 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=5, max_tr
     obs_states = {}
     hid_states = {}
     cel_states = {}
+    act_states = {}
     for _ in range(episodes):
       done = False
       traj_len = 0
@@ -105,13 +106,21 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, episodes=5, max_tr
             cel_states[key] = True
 
         action       = actor(norm_state)
+
+        if act_qbn is not None:
+          action = act_qbn(action)
+          disc_state = np.round(act_qbn.encode(action).numpy()).astype(int)
+          key = ''.join(map(str, disc_state))
+          if key not in act_states:
+            act_states[key] = True
+
         state, r, done, _ = env.step(action.numpy())
         traj_len += 1
         reward += r/episodes
     if layertype == 'LSTMCell':
-      return reward, len(obs_states), len(hid_states), len(cel_states)
+      return reward, len(obs_states), len(hid_states), len(cel_states), len(act_states)
     else:
-      return reward, len(obs_states), len(hid_states), None
+      return reward, len(obs_states), len(hid_states), None, len(act_states)
   
 
 def run_experiment(args):
@@ -145,6 +154,7 @@ def run_experiment(args):
   states     = env_fn().reset()
   obs_qbn    = QBN(obs_dim,    layers=layers)
   hidden_qbn = QBN(hidden_dim, layers=layers)
+  action_qbn = QBN(action_dim, layers=layers)
   if layertype == 'LSTMCell':
     cell_qbn   = QBN(hidden_dim, layers=layers)
   else:
@@ -152,6 +162,7 @@ def run_experiment(args):
 
   obs_optim    = optim.Adam(obs_qbn.parameters(), lr=args.lr, eps=1e-6)
   hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=args.lr, eps=1e-6)
+  action_optim = optim.Adam(action_qbn.parameters(), lr=args.lr, eps=1e-6)
   if layertype == 'LSTMCell':
     cell_optim   = optim.Adam(cell_qbn.parameters(), lr=args.lr, eps=1e-6)
 
@@ -166,7 +177,7 @@ def run_experiment(args):
 
   ray.init()
 
-  n_reward, _, _, _                      = evaluate(policy, episodes=20)
+  n_reward, _, _, _, _                      = evaluate(policy, episodes=20)
   logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, 0)
 
   if os.path.exists(os.path.join(actor_dir, 'train_states.pt')):
@@ -218,6 +229,7 @@ def run_experiment(args):
 
     epoch_obs_losses = []
     epoch_hid_losses = []
+    epoch_act_losses = []
     epoch_cel_losses = []
     for i, batch in enumerate(sampler):
       batch_states  = train_states[batch]
@@ -228,6 +240,7 @@ def run_experiment(args):
 
       obs_loss = 0.5 * (batch_states  - obs_qbn(batch_states)).pow(2).mean()
       hid_loss = 0.5 * (batch_hiddens - hidden_qbn(batch_hiddens)).pow(2).mean()
+      act_loss = 0.5 * (batch_actions - action_qbn(batch_actions)).pow(2).mean()
       if layertype == 'LSTMCell':
         cel_loss = 0.5 * (batch_cells   - cell_qbn(batch_cells)).pow(2).mean()
 
@@ -239,6 +252,10 @@ def run_experiment(args):
       hid_loss.backward()
       hidden_optim.step()
 
+      action_optim.zero_grad()
+      act_loss.backward()
+      action_optim.step()
+
       if layertype == 'LSTMCell':
         cell_optim.zero_grad()
         cel_loss.backward()
@@ -246,6 +263,7 @@ def run_experiment(args):
 
       epoch_obs_losses.append(obs_loss.item())
       epoch_hid_losses.append(hid_loss.item())
+      epoch_act_losses.append(act_loss.item())
       if layertype == 'LSTMCell':
         epoch_cel_losses.append(cel_loss.item())
       print("epoch {:3d} / {:3d}, batch {:3d} / {:3d}".format(epoch+1, args.epochs, i+1, len(sampler)), end='\r')
@@ -253,22 +271,25 @@ def run_experiment(args):
     
     epoch_obs_losses = np.mean(epoch_obs_losses)
     epoch_hid_losses = np.mean(epoch_hid_losses)
+    epoch_act_losses = np.mean(epoch_act_losses)
     if layertype == 'LSTMCell':
       epoch_cel_losses = np.mean(epoch_cel_losses)
 
     with torch.no_grad():
-      state_loss = 0.5 * (test_states - obs_qbn(test_states)).pow(2).mean()
+      state_loss  = 0.5 * (test_states  - obs_qbn(test_states)).pow(2).mean()
       hidden_loss = 0.5 * (test_hiddens - hidden_qbn(test_hiddens)).pow(2).mean()
+      act_loss    = 0.5 * (test_actions - action_qbn(test_actions)).pow(2).mean()
       if layertype == 'LSTMCell':
         cell_loss = 0.5 * (test_cells - cell_qbn(test_cells)).pow(2).mean()
 
     print("\nEvaluating...")
-    d_reward, s_states, h_states, c_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
-    a_reward = 0.0
+    d_reward, s_states, h_states, c_states, a_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn, act_qbn=action_qbn)
+    c_reward = 0.0
     if layertype == 'LSTMCell':
-      a_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=cell_qbn)
-    b_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=None)
-    c_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=None)
+      c_reward, _, _, _, _                    = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=cell_qbn, act_qbn=None)
+    h_reward, _, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=None, act_qbn=None)
+    s_reward, _, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=None, act_qbn=None)
+    a_reward, _, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=None, act_qbn=action_qbn)
 
     if best_reward is None or d_reward > best_reward:
       torch.save(obs_qbn, os.path.join(logger.dir, 'obsqbn.pt'))
@@ -279,11 +300,11 @@ def run_experiment(args):
     if layertype == 'LSTMCell':
       print("Losses: {:7.5f} {:7.5f} {:7.5f}".format(state_loss, hidden_loss, cell_loss))
       print("States: {:5d} {:5d} {:5d}".format(s_states, h_states, c_states)) 
-      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, a_reward, b_reward, c_reward, n_reward))
+      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, h_reward, s_reward, c_reward, a_reward, n_reward))
     else:
       print("Losses: {:7.5f} {:7.5f}".format(state_loss, hidden_loss))
       print("States: {:5d} {:5d} ".format(s_states, h_states))
-      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, b_reward, c_reward, n_reward))
+      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, h_reward, s_reward, a_reward, n_reward))
 
     if logger is not None:
       logger.add_scalar(policy.env_name + '_qbn/obs_loss',           state_loss, epoch)
@@ -291,12 +312,16 @@ def run_experiment(args):
       logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward, epoch)
       if layertype == 'LSTMCell':
         logger.add_scalar(policy.env_name + '_qbn/cell_loss',        cell_loss, epoch)
-        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',  a_reward, epoch)
+        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',  c_reward, epoch)
         logger.add_scalar(policy.env_name + '_qbn/cell_states',      c_states, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  b_reward, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/stateonly_reward',   c_reward, epoch)
+
+      logger.add_scalar(policy.env_name + '_qbn/obsonly_reward',     s_reward, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  h_reward, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/actiononly_reward',  a_reward, epoch)
+
       logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, epoch)
       logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states, epoch)
+      logger.add_scalar(policy.env_name + '_qbn/action_states',      a_states, epoch)
 
   print("Training phase over. Beginning finetuning.")
 
@@ -330,7 +355,7 @@ def run_experiment(args):
           policy.cells = [cell_qbn(cell)]
 
         # Compute qbn values
-        qbn_action                  = policy(obs_qbn(norm_state))
+        qbn_action = action_qbn(policy(obs_qbn(norm_state)))
 
         with torch.no_grad():
           policy.hidden = [hidden]
@@ -349,41 +374,46 @@ def run_experiment(args):
     losses.backward()
 
     if layertype == 'LSTMCell':
-      for opt in [obs_optim, hidden_optim, cell_optim]:
+      for opt in [obs_optim, hidden_optim, cell_optim, action_optim]:
         opt.zero_grad()
         opt.step()
     else:
-      for opt in [obs_optim, hidden_optim]:
+      for opt in [obs_optim, hidden_optim, action_optim]:
         opt.zero_grad()
         opt.step()
 
     print("\nEvaluating...")
-    d_reward, s_states, h_states, c_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn)
-    a_reward = 0.0
+    d_reward, s_states, h_states, c_states, a_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn, act_qbn=action_qbn)
+    c_reward = 0.0
     if layertype == 'LSTMCell':
-      a_reward, _, _, _                    = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=cell_qbn)
-    b_reward, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=None)
-    c_reward, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=None)
+      c_reward, _, _, _, _                    = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=cell_qbn, act_qbn=None)
+    h_reward, _, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=hidden_qbn, cel_qbn=None, act_qbn=None)
+    s_reward, _, _, _, _                      = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=None,       cel_qbn=None, act_qbn=None)
+    a_reward, _, _, _, _                      = evaluate(policy, obs_qbn=None,    hid_qbn=None,       cel_qbn=None, act_qbn=action_qbn)
 
     if layertype == 'LSTMCell':
       print("Finetuning loss: {:7.5f}".format(losses))
       print("States: {:5d} {:5d} {:5d}".format(s_states, h_states, c_states)) 
-      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, a_reward, b_reward, c_reward, n_reward))
+      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, h_reward, s_reward, c_reward, a_reward, n_reward))
     else:
       print("Losses: {:7.5f} {:7.5f}".format(epoch_obs_losses, epoch_hid_losses))
       print("States: {:5d} {:5d} ".format(s_states, h_states))
-      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, b_reward, c_reward, n_reward))
+      print("QBN reward: {:5.1f} ({:5.1f}, {:5.1f}) | Nominal reward {:5.0f} ".format(d_reward, h_reward, s_reward, a_reward, n_reward))
 
     if logger is not None:
       logger.add_scalar(policy.env_name + '_qbn/finetune_loss',      losses.item(), epoch + fine_iter)
       logger.add_scalar(policy.env_name + '_qbn/qbn_reward',         d_reward,      epoch + fine_iter)
       if layertype == 'LSTMCell':
-        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',    a_reward, epoch)
-        logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  b_reward, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/stateonly_reward',   c_reward, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, epoch)
-      logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states, epoch)
+        logger.add_scalar(policy.env_name + '_qbn/cellonly_reward',    c_reward, epoch + fine_iter)
+        logger.add_scalar(policy.env_name + '_qbn/cell_states',        c_states, epoch + fine_iter)
+      
+      logger.add_scalar(policy.env_name + '_qbn/obsonly_reward',     s_reward, epoch + fine_iter)
+      logger.add_scalar(policy.env_name + '_qbn/hiddenonly_reward',  h_reward, epoch + fine_iter)
+      logger.add_scalar(policy.env_name + '_qbn/actiononly_reward',  a_reward, epoch + fine_iter)
+
+      logger.add_scalar(policy.env_name + '_qbn/observation_states', s_states, epoch + fine_iter)
+      logger.add_scalar(policy.env_name + '_qbn/hidden_states',      h_states, epoch + fine_iter)
+      logger.add_scalar(policy.env_name + '_qbn/action_states',      a_states, epoch + fine_iter)
 
     if best_reward is None or d_reward > best_reward:
       torch.save(obs_qbn, os.path.join(logger.dir, 'obsqbn.pt'))
