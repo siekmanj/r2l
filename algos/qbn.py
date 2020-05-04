@@ -10,6 +10,7 @@ from copy import deepcopy
 from policies.autoencoder import QBN
 from util.env import env_factory
 
+# Ray remote function which collects information to use in training QBNs.
 @ray.remote
 def collect_data(actor, timesteps, max_traj_len, seed):
   torch.set_num_threads(1)
@@ -42,6 +43,7 @@ def collect_data(actor, timesteps, max_traj_len, seed):
         if layertype == 'LSTMCell':
           cell = actor.cells[0].view(-1)
 
+        # append the information we care about to lists to be returned.
         states.append(norm_state.numpy())
         actions.append(action.numpy())
         hiddens.append(hidden.numpy())
@@ -59,6 +61,7 @@ def collect_data(actor, timesteps, max_traj_len, seed):
     return [states, actions, hiddens, cells]
 
 
+# Function used for evaluating the performance of the policy networks when any, some, or none of the QBNs are inserted.
 def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, episodes=5, max_traj_len=1000):
   with torch.no_grad():
     env = env_factory(actor.env_name)()
@@ -81,7 +84,7 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
         state        = torch.as_tensor(state).float()
         norm_state   = actor.normalize_state(state, update=False)
         hidden_state = actor.hidden[0]
-        if layertype == 'LSTMCell':
+        if layertype == 'LSTMCell': # if we aren't using a GRU network
           cell_state   = actor.cells[0]
 
         if obs_qbn is not None:
@@ -92,14 +95,14 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
             obs_states[key] = True
 
         if hid_qbn is not None:
-          actor.hidden = [hid_qbn(hidden_state)]
+          actor.hidden = [hid_qbn(hidden_state)] # discretize hidden state
           disc_state = np.round(hid_qbn.encode(hidden_state).numpy()).astype(int)
           key = ''.join(map(str, disc_state[0]))
           if key not in hid_states:
             hid_states[key] = True
 
         if cel_qbn is not None:
-          actor.cells  = [cel_qbn(cell_state)]
+          actor.cells  = [cel_qbn(cell_state)] # discretize cell state if using LSTM
           disc_state = np.round(cel_qbn.encode(cell_state).numpy()).astype(int)
           key = ''.join(map(str, disc_state[0]))
           if key not in cel_states:
@@ -108,7 +111,7 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
         action       = actor(norm_state)
 
         if act_qbn is not None:
-          action = act_qbn(action)
+          action = act_qbn(action) # discretize action 
           disc_state = np.round(act_qbn.encode(action).numpy()).astype(int)
           key = ''.join(map(str, disc_state))
           if key not in act_states:
@@ -117,12 +120,13 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
         state, r, done, _ = env.step(action.numpy())
         traj_len += 1
         reward += r/episodes
-    if layertype == 'LSTMCell':
+    if layertype == 'LSTMCell': # return cell states in addition to others if using LSTM
       return reward, len(obs_states), len(hid_states), len(cel_states), len(act_states)
     else:
       return reward, len(obs_states), len(hid_states), None, len(act_states)
   
 
+# main function for running experiment
 def run_experiment(args):
   locale.setlocale(locale.LC_ALL, '')
 
@@ -133,9 +137,9 @@ def run_experiment(args):
     print("You must provide a policy with --policy.")
     exit(1)
 
-  policy = torch.load(args.policy)
+  policy = torch.load(args.policy) # load policy to be discretized
 
-  layertype = policy.actor_layers[0].__class__.__name__
+  layertype = policy.actor_layers[0].__class__.__name__ 
   if layertype != 'LSTMCell' and layertype != 'GRUCell':
     print("Cannot do QBN insertion on a non-recurrent policy.")
     raise NotImplementedError 
@@ -144,14 +148,16 @@ def run_experiment(args):
     print("Cannot do QBN insertion on a policy with more than one hidden layer.")
     raise NotImplementedError
 
+  # retrieve dimensions of relevant quantities
   env_fn     = env_factory(policy.env_name)
   obs_dim    = env_fn().observation_space.shape[0]
   action_dim = env_fn().action_space.shape[0]
   hidden_dim = policy.actor_layers[0].hidden_size
 
+  # parse QBN layer sizes from command line arg
   layers = [int(x) for x in args.layers.split(',')]
 
-  states     = env_fn().reset()
+  # create QBNs
   obs_qbn    = QBN(obs_dim,    layers=layers)
   hidden_qbn = QBN(hidden_dim, layers=layers)
   action_qbn = QBN(action_dim, layers=layers)
@@ -160,6 +166,7 @@ def run_experiment(args):
   else:
     cell_qbn = None
 
+  # create optimizers for all QBNs
   obs_optim    = optim.Adam(obs_qbn.parameters(), lr=args.lr, eps=1e-6)
   hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=args.lr, eps=1e-6)
   action_optim = optim.Adam(action_qbn.parameters(), lr=args.lr, eps=1e-6)
@@ -177,9 +184,11 @@ def run_experiment(args):
 
   ray.init()
 
+  # evaluate policy without QBNs inserted to get baseline reward
   n_reward, _, _, _, _                      = evaluate(policy, episodes=20)
   logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, 0)
 
+  # if generated data already exists at this directory
   if os.path.exists(os.path.join(actor_dir, 'train_states.pt')):
     train_states  = torch.load(os.path.join(actor_dir, 'train_states.pt'))
     train_actions = torch.load(os.path.join(actor_dir, 'train_actions.pt'))

@@ -86,8 +86,10 @@ class FF_Stochastic_Actor(Actor):
 
   def _get_dist_params(self, state):
     x = state
+    self.latent = []
     for idx, layer in enumerate(self.actor_layers):
       x = self.nonlinearity(layer(x))
+      self.latent.append(x)
 
     mu = self.means(x)
 
