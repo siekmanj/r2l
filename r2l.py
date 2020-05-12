@@ -95,12 +95,12 @@ if __name__ == "__main__":
   parser.add_argument("--timesteps",      "-t",   default=1e6,         type=float)  # timesteps to run experiment for
 
   if sys.argv[1] == 'ars':
+    sys.argv.remove(sys.argv[1])
     """
       Utility for running Augmented Random Search.
 
     """
     from algos.ars import run_experiment
-    sys.argv.remove(sys.argv[1])
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--load_model",   "-l",   default=None, type=str)               # load a model from a saved file.
     parser.add_argument('--std',          "-sd",  default=0.0075, type=float)           # the standard deviation of the parameter noise vectors
@@ -114,6 +114,21 @@ if __name__ == "__main__":
     parser.add_argument("--redis",                default=None)
 
     parser.add_argument("--logdir",               default="./logs/ars/", type=str)
+    args = parser.parse_args()
+    run_experiment(args)
+
+  elif sys.argv[1] == 'udrl':
+    sys.argv.remove(sys.argv[1])
+    """
+      Utility for running Upside-Down Reinforcement Learning.
+    """
+    from algos.udrl import run_experiment
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--start_timesteps",        default=1e4,   type=int)      # number of timesteps to generate random actions for
+    parser.add_argument("--lr",              "-lr", default=1e-4,  type=float)    # adam learning rate for actor
+    parser.add_argument("--batch_size",             default=64,    type=int)      # batch size for policy update
+    parser.add_argument("--prenormalize_steps",     default=10000,         type=int)      
+
     args = parser.parse_args()
     run_experiment(args)
 
