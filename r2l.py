@@ -200,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("--grad_clip",              default=0.05,          type=float)
     parser.add_argument("--batch_size",             default=64,            type=int)      # batch size for policy update
     parser.add_argument("--epochs",                 default=3,             type=int)      # number of updates per iter
+    parser.add_argument("--mirror",                 action='store_true')
 
     parser.add_argument("--save_actor",             default=None,          type=str)
     parser.add_argument("--save_critic",            default=None,          type=str)
