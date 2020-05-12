@@ -348,14 +348,17 @@ def run_experiment(args):
           norm_state   = policy.normalize_state(state, update=False)
 
         hidden        = policy.hidden[0]
-        policy.hidden = [hidden_qbn(hidden)]
+        #policy.hidden = [hidden_qbn(hidden)]
 
         if layertype == 'LSTMCell':
           cell        = policy.cells[0]
-          policy.cells = [cell_qbn(cell)]
+          #policy.cells = [cell_qbn(cell)]
+
+        disc_state = state
+        #disc_state = obs_qbn(norm_state)
 
         # Compute qbn values
-        qbn_action = action_qbn(policy(obs_qbn(norm_state)))
+        qbn_action = action_qbn(policy(disc_state))
 
         with torch.no_grad():
           policy.hidden = [hidden]
