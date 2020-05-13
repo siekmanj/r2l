@@ -256,22 +256,24 @@ class PPO:
 
       mirror_loss = torch.zeros(1)
       if mirror:
-        state_fn  = self.env.mirror_state
-        action_fn = self.env.mirror_action
-
-        squished       = np.prod(list(states.size())[:-1]) 
-        state_dim      = states.size()[-1]
-        state_squished = states.view(squished, state_dim) # squeeze states tensor from [seq, batch, timestep] into [seq * batch, timestep]
-
         with torch.no_grad():
-          mirrored_states      = torch.stack([torch.from_numpy(state_fn(s)).float() for s in state_squished]) # mirror all states
-          mirrored_states      = mirrored_states.view(states.size()) # unsqueeze
-          norm_mirrored_states = self.actor.normalize_state(mirrored_states, update=False) # normalize
-          mirrored_actions     = action_fn(self.actor(norm_mirrored_states)) # get actions
-          raise NotImplementedError
-        unmirrored_actions   = self.actor(norm_states)
+          state_fn  = self.env.mirror_state
+          action_fn = self.env.mirror_action
 
-        mirror_loss = 4 * (unmirrored_actions - torch.from_numpy(mirrored_actions)).pow(2).mean()
+          squished       = np.prod(list(states.size())[:-1]) 
+          state_dim      = states.size()[-1]
+          action_dim     = actions.size()[-1]
+          state_squished = states.view(squished, state_dim) # squeeze states tensor from [seq, batch, statedim] into [seq * batch, statedim]
+
+          mirrored_states      = torch.stack([torch.from_numpy(state_fn(s)).float() for s in state_squished])          # mirror all states
+          mirrored_states      = mirrored_states.view(states.size())                                                   # unsqueeze
+          norm_mirrored_states = self.actor.normalize_state(mirrored_states, update=False)                             # normalize
+          pre_mirror           = self.actor(norm_mirrored_states).view(squished, action_dim)                           # squeeze into [seq * batch, actiondim]
+          mirrored_actions     = torch.stack([torch.from_numpy(action_fn(action)).float() for action in pre_mirror])   # get actions
+          mirrored_actions     = mirrored_actions.view(actions.size())
+
+        unmirrored_actions   = self.actor(norm_states)
+        mirror_loss = 4 * (unmirrored_actions - mirrored_actions).pow(2).mean()
 
       self.actor_optim.zero_grad()
       self.critic_optim.zero_grad()
@@ -335,9 +337,10 @@ class PPO:
       start  = time()
       kls    = []
       done = False
+      a_loss = []
+      c_loss = []
+      m_loss = []
       for epoch in range(epochs):
-        a_loss = []
-        c_loss = []
         for batch in memory.sample(batch_size=batch_size, recurrent=self.recurrent):
           states, actions, returns, advantages, mask = batch
           
@@ -345,6 +348,7 @@ class PPO:
           kls += [kl]
           a_loss += [losses[0]]
           c_loss += [losses[1]]
+          m_loss += [losses[2]]
 
           if max(kls) > kl_thresh:
               done = True
@@ -359,7 +363,7 @@ class PPO:
 
       if verbose:
         print("\t{:3.2f}s to update policy.".format(time() - start))
-      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), len(memory)
+      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), np.mean(m_loss), len(memory)
 
 def run_experiment(args):
   torch.set_num_threads(1)
@@ -444,10 +448,13 @@ def run_experiment(args):
   timesteps = 0
   best_reward = None
   while timesteps < args.timesteps:
-    eval_reward, kl, a_loss, c_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl, mirror=args.mirror)
+    eval_reward, kl, a_loss, c_loss, m_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl, mirror=args.mirror)
 
     timesteps += steps
-    print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))
+    if m_loss != 0:
+      print("iter {:4d} | return: {:5.2f} | mirror {:6.5f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, m_loss, kl, timesteps))
+    else:
+      print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))
 
     if best_reward is None or eval_reward > best_reward:
       print("\t(best policy so far! saving to {})".format(args.save_actor))
@@ -463,5 +470,6 @@ def run_experiment(args):
       logger.add_scalar(args.env + '/return', eval_reward, timesteps)
       logger.add_scalar(args.env + '/actor loss', a_loss, timesteps)
       logger.add_scalar(args.env + '/critic loss', c_loss, timesteps)
+      logger.add_scalar(args.env + '/mirror loss', m_loss, timesteps)
     itr += 1
   print("Finished ({} of {}).".format(timesteps, args.timesteps))
