@@ -237,11 +237,11 @@ class PPO:
 
     def update_policy(self, states, actions, returns, advantages, mask, mirror=False):
       with torch.no_grad():
-        states = self.actor.normalize_state(states, update=False)
-        old_pdf = self.old_actor.pdf(states)
+        norm_states = self.actor.normalize_state(states, update=False)
+        old_pdf = self.old_actor.pdf(norm_states)
         old_log_probs = old_pdf.log_prob(actions).sum(-1, keepdim=True)
 
-      pdf = self.actor.pdf(states)
+      pdf = self.actor.pdf(norm_states)
       
       log_probs = pdf.log_prob(actions).sum(-1, keepdim=True)
 
@@ -250,22 +250,33 @@ class PPO:
       clip_loss = ratio.clamp(0.8, 1.2) * advantages * mask
       actor_loss = -torch.min(cpi_loss, clip_loss).mean()
 
-      critic_loss = 0.5 * ((returns - self.critic(states)) * mask).pow(2).mean()
+      critic_loss = 0.5 * ((returns - self.critic(norm_states)) * mask).pow(2).mean()
 
       entropy_penalty = -(self.entropy_coeff * pdf.entropy() * mask).mean()
 
-      #mirror_loss = 0
-      #if mirror:
-      #  #mirrored_states = torch.stack([self.env.mirror_state(
-      #  squished = np.prod(list(states.size())[:-1])
-      #  mirrored_states = torch.stack([torch.from_numpy(self.env.mirror_state(s)) for s in states.view(squished, states.size()[-1])]).view(states.size())
-      #  print(mirrored_states.size())
-      #  exit()
+      mirror_loss = torch.zeros(1)
+      if mirror:
+        state_fn  = self.env.mirror_state
+        action_fn = self.env.mirror_action
+
+        squished       = np.prod(list(states.size())[:-1]) 
+        state_dim      = states.size()[-1]
+        state_squished = states.view(squished, state_dim) # squeeze states tensor from [seq, batch, timestep] into [seq * batch, timestep]
+
+        with torch.no_grad():
+          mirrored_states      = torch.stack([torch.from_numpy(state_fn(s)).float() for s in state_squished]) # mirror all states
+          mirrored_states      = mirrored_states.view(states.size()) # unsqueeze
+          norm_mirrored_states = self.actor.normalize_state(mirrored_states, update=False) # normalize
+          mirrored_actions     = action_fn(self.actor(norm_mirrored_states)) # get actions
+          raise NotImplementedError
+        unmirrored_actions   = self.actor(norm_states)
+
+        mirror_loss = 4 * (unmirrored_actions - torch.from_numpy(mirrored_actions)).pow(2).mean()
 
       self.actor_optim.zero_grad()
       self.critic_optim.zero_grad()
 
-      (actor_loss + entropy_penalty).backward()
+      (actor_loss + entropy_penalty + mirror_loss).backward()
       critic_loss.backward()
 
       torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.grad_clip)
@@ -274,7 +285,7 @@ class PPO:
       self.critic_optim.step()
 
       with torch.no_grad():
-        return kl_divergence(pdf, old_pdf).mean().numpy(), ((actor_loss + entropy_penalty).item(), critic_loss.item())
+        return kl_divergence(pdf, old_pdf).mean().numpy(), ((actor_loss + entropy_penalty).item(), critic_loss.item(), mirror_loss.item())
 
     def merge_buffers(self, buffers):
       memory = Buffer()
