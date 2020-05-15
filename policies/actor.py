@@ -12,6 +12,10 @@ class Actor(Net):
     raise NotImplementedError
 
 class Linear_Actor(Actor):
+  """
+  A very simple type of policy network, which does not contain
+  any nonlinearities. It is simply a collection of linear layers.
+  """
   def __init__(self, state_dim, action_dim, layers=(64)):
     super(Linear_Actor, self).__init__()
 
@@ -34,7 +38,11 @@ class Linear_Actor(Actor):
     return action
 
 class FF_Actor(Actor):
-  def __init__(self, state_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh, normc_init=False, max_action=1):
+  """
+  A feedforward policy network architecture, which by default uses
+  tanh activations in between standard linear layers. 
+  """
+  def __init__(self, state_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh, normc_init=False):
     super(FF_Actor, self).__init__()
 
     self.actor_layers = nn.ModuleList()
@@ -46,7 +54,6 @@ class FF_Actor(Actor):
     self.action_dim = action_dim
     self.env_name = env_name
     self.nonlinearity = nonlinearity
-    self.max_action = max_action
 
     if normc_init:
       self.initialize_parameters()
@@ -60,6 +67,11 @@ class FF_Actor(Actor):
     return action
 
 class FF_Stochastic_Actor(Actor):
+  """
+  A stochastic feedforward policy which outputs a normal distribution. By
+  default, it is deterministic, but the normal distribution can be sampled from
+  by passing the 'deterministic=False' keyword into the forward function.
+  """
   def __init__(self, state_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh, normc_init=True, bounded=False, fixed_std=None):
     super(FF_Stochastic_Actor, self).__init__()
 
@@ -126,6 +138,10 @@ class FF_Stochastic_Actor(Actor):
     return torch.distributions.Normal(mu, sd)
 
 class LSTM_Actor(Actor):
+  """
+  An LSTM policy network (recurrent). It is deterministic, and by default has a 
+  linear output layer.
+  """
   def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None, nonlinearity=torch.tanh, normc_init=False, bounded=False):
     super(LSTM_Actor, self).__init__()
 
@@ -190,6 +206,12 @@ class LSTM_Actor(Actor):
     return action
 
 class LSTM_Stochastic_Actor(Actor):
+  """
+  A stochastic LSTM policy network architecture, which outputs
+  a Gaussian distribution. By default, it is deterministic and just
+  outputs the mean, but passing 'deterministic=False' to the forward
+  function will return a sample from the outputted Gaussian.
+  """
   def __init__(self, state_dim, action_dim, layers=(128, 128), env_name=None, normc_init=False, bounded=False, fixed_std=None):
     super(LSTM_Stochastic_Actor, self).__init__()
 
@@ -281,6 +303,10 @@ class LSTM_Stochastic_Actor(Actor):
     return torch.distributions.Normal(mu, sd)
 
 class GRU_Actor(Actor):
+  """
+  A Gated Recurrent Unit architecture, which by default has a linear output
+  layer and is deterministic. 
+  """
   def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None, nonlinearity=torch.tanh, normc_init=False, bounded=False):
     super(GRU_Actor, self).__init__()
 
@@ -344,6 +370,12 @@ class GRU_Actor(Actor):
     return action
 
 class GRU_Stochastic_Actor(Actor):
+  """
+  A stochastic GRU policy network architecture, which outputs
+  a Gaussian distribution. By default, it is deterministic and just
+  outputs the mean, but passing 'deterministic=False' to the forward
+  function will return a sample from the outputted Gaussian.
+  """
   def __init__(self, state_dim, action_dim, layers=(128, 128), env_name=None, normc_init=False, bounded=False, fixed_std=None):
     super(GRU_Stochastic_Actor, self).__init__()
 

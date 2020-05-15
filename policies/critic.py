@@ -10,8 +10,10 @@ def fanin_init(size, fanin=None):
     v = 1. / np.sqrt(fanin)
     return torch.Tensor(size).uniform_(-v, v)
 
-# The base class for a critic. Includes functions for normalizing reward and state (optional)
 class Critic(Net):
+  """
+  The base class for a critic.
+  """
   def __init__(self):
     super(Critic, self).__init__()
 
@@ -23,6 +25,10 @@ class Critic(Net):
     raise NotImplementedError
 
 class FF_Q(Critic):
+  """
+  A simple feedforward Q function, which learns the value of a
+  state-action pair.
+  """
   def __init__(self, state_dim, action_dim, layers=(256, 256), env_name='NOT SET', normc_init=True):
     super(FF_Q, self).__init__()
 
@@ -46,6 +52,10 @@ class FF_Q(Critic):
     return self.network_out(x)
 
 class FF_V(Critic):
+  """
+  A simple feedforward value function, which learns the value of a
+  state when following some policy.
+  """
   def __init__(self, state_dim, layers=(256, 256), env_name='NOT SET', normc_init=True):
     super(FF_V, self).__init__()
 
@@ -70,6 +80,10 @@ class FF_V(Critic):
     return self.network_out(x)
 
 class LSTM_Q(Critic):
+  """
+  An LSTM Q function, which learns the value of a state-action pair
+  with the aid of memory.
+  """
   def __init__(self, input_dim, action_dim, layers=(128, 128), env_name='NOT SET', normc_init=True):
     super(LSTM_Q, self).__init__()
 
@@ -134,6 +148,10 @@ class LSTM_Q(Critic):
     return x
 
 class LSTM_V(Critic):
+  """
+  An LSTM value function, which learns the value of a state
+  when following some policy with the aid of memory.
+  """
   def __init__(self, input_dim, layers=(128, 128), env_name='NOT SET', normc_init=True):
     super(LSTM_V, self).__init__()
 
@@ -192,6 +210,9 @@ class LSTM_V(Critic):
     return x
 
 class GRU_Q(Critic):
+  """
+  A GRU Q function, which learns the value of a state-action pair.
+  """
   def __init__(self, input_dim, action_dim, layers=(128, 128), env_name='NOT SET', normc_init=True):
     super(GRU_Q, self).__init__()
 
@@ -255,6 +276,10 @@ class GRU_Q(Critic):
     return x
 
 class GRU_V(Critic):
+  """
+  A GRU value function, which learns the value of a state when
+  following some policy.
+  """
   def __init__(self, input_dim, layers=(128, 128), env_name='NOT SET', normc_init=True):
     super(GRU_V, self).__init__()
 

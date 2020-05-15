@@ -7,6 +7,11 @@ import random
 import time
 
 class DDPG():
+  """
+  Deep Deterministic Policy Gradients is an off-policy policy gradient
+  algorithm. This implementation can also act as RDPG, the recurrent
+  variant of DDPG. It is called from off_policy.py, 
+  """
   def __init__(self, actor, critic, args):
 
     self.recurrent = False

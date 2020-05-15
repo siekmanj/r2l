@@ -5,6 +5,12 @@ import torch.nn.functional as F
 from torch import sqrt
 
 def normc_fn(m):
+  """
+  This function multiplies the weights of a pytorch linear layer by a small
+  number so that outputs early in training are close to zero, which means 
+  that gradients are larger in magnitude. This means a richer gradient signal
+  is propagated back and speeds up learning (probably).
+  """
   if m.__class__.__name__.find('Linear') != -1:
     m.weight.data.normal_(0, 1)
     m.weight.data *= 1 / torch.sqrt(m.weight.data.pow(2).sum(1, keepdim=True))
@@ -13,6 +19,10 @@ def normc_fn(m):
 
 # The base class for an actor. Includes functions for normalizing state (optional)
 class Net(nn.Module):
+  """
+  The base class which all policy networks inherit from. It includes methods
+  for normalizing states, initializing network parameters, and a prototype forward function.
+  """
   def __init__(self):
     super(Net, self).__init__()
     self.is_recurrent = False
@@ -27,6 +37,10 @@ class Net(nn.Module):
     raise NotImplementedError
 
   def normalize_state(self, state, update=True):
+    """
+    Use Welford's algorithm to normalize a state, and optionally update the statistics
+    for normalizing states using the new state, online.
+    """
     state = torch.Tensor(state)
 
     if self.welford_state_n == 1:

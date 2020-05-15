@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 
 class TernaryTanh(torch.autograd.Function):
+  """
+  A class with functions thatternarize tanh by rounding to either -1, 0, or 1.
+  To be used to accomplish autoencoding values to a discretized latent
+  representation.
+  """
   @staticmethod
   def forward(cxt, x):
     y = x.new(x.size())
@@ -16,6 +21,12 @@ class TernaryTanh(torch.autograd.Function):
 ternaryTanh = TernaryTanh.apply
 
 class QBN(nn.Module):
+  """
+  A neural network autoencoder which compresses information using
+  a structure defined by the 'layers' argument in the constructor.
+  The discretized, latent representation will be the size of the last
+  element in the layers tuple.
+  """
   def __init__(self, dim, layers=(128, 64, 16)):
     super(QBN, self).__init__()
 

@@ -5,6 +5,10 @@ import torch.nn.functional as F
 from policies.base import Net
 
 class Model(Net):
+  """
+  A very simple feedforward network to be used for
+  vanilla supervised learning problems.
+  """
   def __init__(self, state_dim, output_dim, layers=(512,256), nonlinearity=torch.tanh):
     super(Model, self).__init__()
 

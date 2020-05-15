@@ -10,15 +10,19 @@ from copy import deepcopy
 from policies.autoencoder import QBN
 from util.env import env_factory
 
-# Ray remote function which collects information to use in training QBNs.
 @ray.remote
 def collect_data(actor, timesteps, max_traj_len, seed):
+  """
+  A Ray remote function which collects information to be used when training QBNs.
+  Specifically, it returns a list of states, actions, hidden states, and if the
+  actor is an LSTM policy, cell states.
+  """
   torch.set_num_threads(1)
   np.random.seed(seed)
   policy = deepcopy(actor)
   layertype = policy.actor_layers[0].__class__.__name__
 
-  with torch.no_grad():
+  with torch.no_grad(): # no gradients necessary
     env = env_factory(policy.env_name)()
     num_steps = 0
     states  = []
@@ -31,7 +35,7 @@ def collect_data(actor, timesteps, max_traj_len, seed):
 
       done = False
       traj_len = 0
-      if hasattr(actor, 'init_hidden_state'):
+      if hasattr(actor, 'init_hidden_state'): # initialize the memory of the network if recurrent
         actor.init_hidden_state()
 
       while not done and traj_len < max_traj_len:
@@ -63,7 +67,11 @@ def collect_data(actor, timesteps, max_traj_len, seed):
 
 # Function used for evaluating the performance of the policy networks when any, some, or none of the QBNs are inserted.
 def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, episodes=5, max_traj_len=1000):
-  with torch.no_grad():
+  """ 
+  A function used for evaluating the performance of a policy network when any, some,
+  or none of the QBNs are inserted into key points of its execution.
+  """
+  with torch.no_grad(): # No gradients necessary
     env = env_factory(actor.env_name)()
     reward = 0
 
@@ -83,34 +91,35 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
       while not done and traj_len < max_traj_len:
         state        = torch.as_tensor(state).float()
         norm_state   = actor.normalize_state(state, update=False)
+
         hidden_state = actor.hidden[0]
         if layertype == 'LSTMCell': # if we aren't using a GRU network
           cell_state   = actor.cells[0]
 
-        if obs_qbn is not None:
+        if obs_qbn is not None: # handle the state QBN
           norm_state   = obs_qbn(norm_state) # discretize state
           disc_state = np.round(obs_qbn.encode(norm_state).numpy()).astype(int)
           key = ''.join(map(str, disc_state))
           if key not in obs_states:
             obs_states[key] = True
 
-        if hid_qbn is not None:
+        if hid_qbn is not None: # handle the hidden state QBN
           actor.hidden = [hid_qbn(hidden_state)] # discretize hidden state
           disc_state = np.round(hid_qbn.encode(hidden_state).numpy()).astype(int)
           key = ''.join(map(str, disc_state[0]))
           if key not in hid_states:
             hid_states[key] = True
 
-        if cel_qbn is not None:
+        if cel_qbn is not None: # handle the cell state QBN
           actor.cells  = [cel_qbn(cell_state)] # discretize cell state if using LSTM
           disc_state = np.round(cel_qbn.encode(cell_state).numpy()).astype(int)
           key = ''.join(map(str, disc_state[0]))
           if key not in cel_states:
             cel_states[key] = True
 
-        action       = actor(norm_state)
+        action       = actor(norm_state) # run the policy to get an action
 
-        if act_qbn is not None:
+        if act_qbn is not None: # handle the action QBN
           action = act_qbn(action) # discretize action 
           disc_state = np.round(act_qbn.encode(action).numpy()).astype(int)
           key = ''.join(map(str, disc_state))
@@ -125,9 +134,11 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
     else:
       return reward, len(obs_states), len(hid_states), None, len(act_states)
   
-
-# main function for running experiment
 def run_experiment(args):
+  """
+  The entry point for the QBN insertion algorithm. This function is called by r2l.py,
+  and passed an args dictionary which contains hyperparameters for running the experiment.
+  """
   locale.setlocale(locale.LC_ALL, '')
 
   from util.env import env_factory
@@ -140,11 +151,11 @@ def run_experiment(args):
   policy = torch.load(args.policy) # load policy to be discretized
 
   layertype = policy.actor_layers[0].__class__.__name__ 
-  if layertype != 'LSTMCell' and layertype != 'GRUCell':
+  if layertype != 'LSTMCell' and layertype != 'GRUCell': # ensure that the policy loaded is actually recurrent
     print("Cannot do QBN insertion on a non-recurrent policy.")
     raise NotImplementedError 
 
-  if len(policy.actor_layers) > 1:
+  if len(policy.actor_layers) > 1: # ensure that the policy only has one hidden layer
     print("Cannot do QBN insertion on a policy with more than one hidden layer.")
     raise NotImplementedError
 
@@ -188,7 +199,7 @@ def run_experiment(args):
   n_reward, _, _, _, _                      = evaluate(policy, episodes=20)
   logger.add_scalar(policy.env_name + '_qbn/nominal_reward', n_reward, 0)
 
-  # if generated data already exists at this directory
+  # if generated data already exists at this directory, then just load that
   if os.path.exists(os.path.join(actor_dir, 'train_states.pt')):
     train_states  = torch.load(os.path.join(actor_dir, 'train_states.pt'))
     train_actions = torch.load(os.path.join(actor_dir, 'train_actions.pt'))
@@ -201,7 +212,7 @@ def run_experiment(args):
     if layertype == 'LSTMCell':
       train_cells      = torch.load(os.path.join(actor_dir, 'train_cells.pt'))
       test_cells = torch.load(os.path.join(actor_dir, 'test_cells.pt'))
-  else:
+  else: # if no data exists and we need to generate some
     start = time.time()
     data = ray.get([collect_data.remote(policy, args.dataset/args.workers, 400, np.random.randint(65535)) for _ in range(args.workers)])
     states  = torch.from_numpy(np.vstack([r[0] for r in data]))
@@ -210,7 +221,7 @@ def run_experiment(args):
     if layertype == 'LSTMCell':
       cells   = torch.from_numpy(np.vstack([r[3] for r in data]))
 
-    split = int(0.8 * len(states))
+    split = int(0.8 * len(states)) # 80/20 train test split 
 
     train_states, test_states   = states[:split], states[split:]
     train_actions, test_actions = actions[:split], actions[split:]
@@ -232,6 +243,7 @@ def run_experiment(args):
     if layertype == 'LSTMCell':
       torch.save(test_cells, os.path.join(actor_dir, 'test_cells.pt'))
 
+  # run the nominal QBN training algorithm via unsupervised learning on the dataset
   for epoch in range(args.epochs):
     random_indices = SubsetRandomSampler(range(train_states.shape[0]))
     sampler        = BatchSampler(random_indices, args.batch_size, drop_last=False)
@@ -241,18 +253,22 @@ def run_experiment(args):
     epoch_act_losses = []
     epoch_cel_losses = []
     for i, batch in enumerate(sampler):
+
+      # get batch inputs from dataset
       batch_states  = train_states[batch]
       batch_actions = train_actions[batch]
       batch_hiddens = train_hiddens[batch]
       if layertype == 'LSTMCell':
         batch_cells   = train_cells[batch]
 
+      # do forward pass to create derivative graph
       obs_loss = 0.5 * (batch_states  - obs_qbn(batch_states)).pow(2).mean()
       hid_loss = 0.5 * (batch_hiddens - hidden_qbn(batch_hiddens)).pow(2).mean()
       act_loss = 0.5 * (batch_actions - action_qbn(batch_actions)).pow(2).mean()
       if layertype == 'LSTMCell':
         cel_loss = 0.5 * (batch_cells   - cell_qbn(batch_cells)).pow(2).mean()
 
+      # gradient calculation and parameter updates
       obs_optim.zero_grad()
       obs_loss.backward()
       obs_optim.step()
@@ -284,6 +300,7 @@ def run_experiment(args):
     if layertype == 'LSTMCell':
       epoch_cel_losses = np.mean(epoch_cel_losses)
 
+    # collect some statistics about performance on the test set
     with torch.no_grad():
       state_loss  = 0.5 * (test_states  - obs_qbn(test_states)).pow(2).mean()
       hidden_loss = 0.5 * (test_hiddens - hidden_qbn(test_hiddens)).pow(2).mean()
@@ -291,6 +308,7 @@ def run_experiment(args):
       if layertype == 'LSTMCell':
         cell_loss = 0.5 * (test_cells - cell_qbn(test_cells)).pow(2).mean()
 
+    # evaluate QBN performance one-by-one
     print("\nEvaluating...")
     d_reward, s_states, h_states, c_states, a_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn, act_qbn=action_qbn)
     c_reward = 0.0
@@ -334,11 +352,13 @@ def run_experiment(args):
 
   print("Training phase over. Beginning finetuning.")
 
+  # initialize new optimizers, since the gradient magnitudes will likely change as we are calculating a different quantity.
   obs_optim    = optim.Adam(obs_qbn.parameters(), lr=args.lr, eps=1e-6)
   hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=args.lr, eps=1e-6)
   if layertype == 'LSTMCell':
     cell_optim   = optim.Adam(cell_qbn.parameters(), lr=args.lr, eps=1e-6)
 
+  # run the finetuning portion of the QBN algorithm.
   for fine_iter in range(args.iterations):
     losses = []
     for ep in range(args.episodes):
@@ -376,21 +396,30 @@ def run_experiment(args):
         reward += r
         traj_len += 1
 
-        step_loss = 0.5 * (action - qbn_action).pow(2)
+        step_loss = 0.5 * (action - qbn_action).pow(2) # this creates the derivative graph for our backwards pass
         losses += [step_loss]
     
-    losses = torch.stack(losses).mean()
-    losses.backward()
-
+    # clear our parameter gradients
     if layertype == 'LSTMCell':
       for opt in [obs_optim, hidden_optim, cell_optim, action_optim]:
         opt.zero_grad()
-        opt.step()
     else:
       for opt in [obs_optim, hidden_optim, action_optim]:
         opt.zero_grad()
+
+    # run the backwards pass
+    losses = torch.stack(losses).mean()
+    losses.backward()
+
+    # update parameters
+    if layertype == 'LSTMCell':
+      for opt in [obs_optim, hidden_optim, cell_optim, action_optim]:
+        opt.step()
+    else:
+      for opt in [obs_optim, hidden_optim, action_optim]:
         opt.step()
 
+    # evaluate our QBN performance one-by-one
     print("\nEvaluating...")
     d_reward, s_states, h_states, c_states, a_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn, act_qbn=action_qbn)
     c_reward = 0.0

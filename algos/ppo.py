@@ -265,23 +265,11 @@ class PPO:
           action_dim     = actions.size()[-1]
           state_squished = states.view(squished, state_dim).numpy() # squeeze states tensor into [seq * batch, statedim]
 
-          #start = time()
           mirrored_states  = torch.from_numpy(state_fn(state_squished)).view(states.size())
           mirrored_states  = self.actor.normalize_state(mirrored_states, update=False)
 
           action_squished  = self.actor(mirrored_states).view(squished, action_dim).numpy()
           mirrored_actions = torch.from_numpy(action_fn(action_squished)).view(actions.size())
-          #print("t1: {}".format(time() - start))
-
-          #start =time()
-          #mirrored_states      = torch.stack([torch.from_numpy(state_fn(s)).float() for s in state_squished])          # mirror all states
-          #mirrored_states      = mirrored_states.view(states.size())                                                   # unsqueeze
-          #norm_mirrored_states = self.actor.normalize_state(mirrored_states, update=False)                             # normalize
-          #pre_mirror           = self.actor(norm_mirrored_states).view(squished, action_dim).numpy()                           # squeeze into [seq * batch, actiondim]
-          #mirrored_actions     = torch.stack([torch.from_numpy(action_fn(action)).float() for action in pre_mirror])   # get actions
-          #mirrored_actions     = mirrored_actions.view(actions.size())
-          #print("t2: {}".format(time() - start))
-          #raise RuntimeError
 
         unmirrored_actions   = self.actor(norm_states)
         mirror_loss = 4 * (unmirrored_actions - mirrored_actions).pow(2).mean()
