@@ -124,7 +124,7 @@ class Stochastic_Actor:
 class FF_Stochastic_Actor(FF_Base, Stochastic_Actor):
   """
   A class inheriting from FF_Base and Stochastic_Actor
-  which implements a recurrent stochastic policy.
+  which implements a feedforward stochastic policy.
   """
   def __init__(self, input_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh, bounded=False, fixed_std=None):
 
@@ -145,6 +145,16 @@ class LSTM_Stochastic_Actor(LSTM_Base, Stochastic_Actor):
     LSTM_Base.__init__(self, input_dim, layers)
     Stochastic_Actor.__init__(self, layers[-1], action_dim, env_name, bounded, fixed_std=fixed_std)
 
+    self.is_recurrent = True
+    self.init_hidden_state()
+
+    #self.means             = nn.Linear(layers[-1], action_dim)
+    #self.bounded           = bounded
+
+    #if fixed_std is None:
+    #  self.log_stds = nn.Linear(latent, action_dim)
+    #self.fixed_std = fixed_std
+
   def forward(self, x, deterministic=True, update_norm=False, return_log_probs=False):
     return self.stochastic_forward(x, deterministic=deterministic, update=update_norm, log_probs=return_log_probs)
 
@@ -158,6 +168,9 @@ class GRU_Stochastic_Actor(GRU_Base, Stochastic_Actor):
 
     GRU_Base.__init__(self, input_dim, layers)
     Stochastic_Actor.__init__(self, layers[-1], action_dim, env_name, bounded, fixed_std=fixed_std)
+
+    self.is_recurrent = True
+    self.init_hidden_state()
 
   def forward(self, x, deterministic=True, update_norm=False, return_log_probs=False):
     return self.stochastic_forward(x, deterministic=deterministic, update=update_norm, log_probs=return_log_probs)

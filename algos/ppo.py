@@ -133,6 +133,7 @@ class PPO_Worker:
 
     if input_norm is not None:
       self.actor.welford_state_mean, self.actor.welford_state_mean_diff, self.actor.welford_state_n = input_norm
+      self.critic.copy_normalizer_stats(self.actor)
 
   def collect_experience(self, max_traj_len, min_steps):
     with torch.no_grad():
@@ -159,8 +160,7 @@ class PPO_Worker:
 
         while not done and traj_len < max_traj_len:
             state = torch.Tensor(state)
-            #norm_state = actor.normalize_state(state, update=False)
-            action = actor(state, False)
+            action = actor(state, deterministic=False)
             value = critic(state)
 
             next_state, reward, done, _ = self.env.step(action.numpy())
@@ -194,7 +194,6 @@ class PPO_Worker:
           self.actor.init_hidden_state()
 
         while not done and traj_len < max_traj_len:
-          state = self.actor.normalize_state(state, update=False)
           action = self.actor(state, deterministic=True)
 
           next_state, reward, done, _ = self.env.step(action.numpy())
@@ -240,7 +239,7 @@ class PPO:
         old_pdf = self.old_actor.pdf(states)
         old_log_probs = old_pdf.log_prob(actions).sum(-1, keepdim=True)
 
-      pdf = self.actor.pdf(norm_states)
+      pdf = self.actor.pdf(states)
       
       log_probs = pdf.log_prob(actions).sum(-1, keepdim=True)
 
@@ -249,7 +248,7 @@ class PPO:
       clip_loss = ratio.clamp(0.8, 1.2) * advantages * mask
       actor_loss = -torch.min(cpi_loss, clip_loss).mean()
 
-      critic_loss = 0.5 * ((returns - self.critic(norm_states)) * mask).pow(2).mean()
+      critic_loss = 0.5 * ((returns - self.critic(states)) * mask).pow(2).mean()
 
       entropy_penalty = -(self.entropy_coeff * pdf.entropy() * mask).mean()
 
@@ -265,12 +264,11 @@ class PPO:
           state_squished = states.view(squished, state_dim).numpy() # squeeze states tensor into [seq * batch, statedim]
 
           mirrored_states  = torch.from_numpy(state_fn(state_squished)).view(states.size())
-          mirrored_states  = self.actor.normalize_state(mirrored_states, update=False)
 
           action_squished  = self.actor(mirrored_states).view(squished, action_dim).numpy()
           mirrored_actions = torch.from_numpy(action_fn(action_squished)).view(actions.size())
 
-        unmirrored_actions   = self.actor(norm_states)
+        unmirrored_actions   = self.actor(states)
         mirror_loss = 4 * (unmirrored_actions - mirrored_actions).pow(2).mean()
 
       self.actor_optim.zero_grad()
@@ -404,6 +402,8 @@ def run_experiment(args):
 
   print("Collecting normalization statistics with {} states...".format(args.prenormalize_steps))
   train_normalizer(policy, args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
+
+  critic.copy_normalizer_stats(policy)
 
   policy.train(0)
   critic.train(0)

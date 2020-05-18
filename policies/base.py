@@ -62,7 +62,7 @@ class Net(nn.Module):
     return (state - self.welford_state_mean) / sqrt(self.welford_state_mean_diff / self.welford_state_n)
 
   def copy_normalizer_stats(self, net):
-    self.welford_state_mean      = net.self_state_mean
+    self.welford_state_mean      = net.welford_state_mean
     self.welford_state_mean_diff = net.welford_state_mean_diff
     self.welford_state_n         = net.welford_state_n
   
