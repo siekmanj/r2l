@@ -148,13 +148,6 @@ class LSTM_Stochastic_Actor(LSTM_Base, Stochastic_Actor):
     self.is_recurrent = True
     self.init_hidden_state()
 
-    #self.means             = nn.Linear(layers[-1], action_dim)
-    #self.bounded           = bounded
-
-    #if fixed_std is None:
-    #  self.log_stds = nn.Linear(latent, action_dim)
-    #self.fixed_std = fixed_std
-
   def forward(self, x, deterministic=True, update_norm=False, return_log_probs=False):
     return self.stochastic_forward(x, deterministic=deterministic, update=update_norm, log_probs=return_log_probs)
 

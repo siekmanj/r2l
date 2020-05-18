@@ -18,6 +18,12 @@ def normc_fn(m):
       m.bias.data.fill_(0)
 
 def create_layers(layer_fn, input_dim, layer_sizes):
+  """
+  This function creates a pytorch modulelist and appends
+  pytorch modules like nn.Linear or nn.LSTMCell passed
+  in through the layer_fn argument, using the sizes
+  specified in the layer_sizes list.
+  """
   ret = nn.ModuleList()
   ret += [layer_fn(input_dim, layer_sizes[0])]
   for i in range(len(layer_sizes)-1):
@@ -133,7 +139,6 @@ class GRU_Base(Net):
   """
   def __init__(self, in_dim, layers):
     super(GRU_Base, self).__init__()
-    #Net.__init__(self)
     self.layers = create_layers(nn.GRUCell, in_dim, layers)
 
   def get_hidden_state(self):
