@@ -87,7 +87,7 @@ class FF_V(FF_Base, V):
     V.__init__(self, layers[-1], env_name)
 
   def forward(self, state):
-    return v_forward(state)
+    return self.v_forward(state)
 
 
 class LSTM_V(LSTM_Base, V):
