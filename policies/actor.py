@@ -2,106 +2,103 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from policies.base import Net
+from policies.base import FF_Base, LSTM_Base, GRU_Base
 
-class Actor(Net):
-  def __init__(self):
-    super(Actor, self).__init__()
+class Actor:
+  """
+  The base class for deterministic actors.
+  """
+  def __init__(self, latent, action_dim, env_name):
+    self.action_dim        = action_dim
+    self.env_name          = env_name
+    self.network_out       = nn.Linear(latent, action_dim)
 
-  def forward(self):
-    raise NotImplementedError
+  def deterministic_forward(self, state, update=False):
+    state = self.normalize_state(state, update=update)
+    x = self._base_forward(state)
+    return self.network_out(x)
 
-class Linear_Actor(Actor):
-  def __init__(self, state_dim, action_dim, layers=(64)):
-    super(Linear_Actor, self).__init__()
 
-    self.actor_layers = nn.ModuleList()
-    self.actor_layers += [nn.Linear(state_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.actor_layers += [nn.Linear(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], action_dim)
+class FF_Actor(FF_Base, Actor):
+  """
+  A class inheriting from FF_Base and Actor
+  which implements a feedforward deterministic policy.
+  """
+  def __init__(self, input_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh):
 
-    self.action_dim = action_dim
+    FF_Base.__init__(self, input_dim, layers, nonlinearity)
+    Actor.__init__(self, layers[-1], action_dim, env_name)
 
-    for p in self.parameters():
-      p.data = torch.zeros(p.shape)
+  def forward(self, x, update_norm=False):
+    return self.deterministic_forward(x, update=update_norm)
 
-  def forward(self, state):
-    x = state
-    for layer in self.actor_layers:
-      x = layer(x)
-    action = self.network_out(x)
-    return action
 
-class FF_Actor(Actor):
-  def __init__(self, state_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh, normc_init=False, max_action=1):
-    super(FF_Actor, self).__init__()
+class LSTM_Actor(LSTM_Base, Actor):
+  """
+  A class inheriting from LSTM_Base and Actor
+  which implements a recurrent deterministic policy.
+  """
+  def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None):
+    
+    LSTM_Base.__init__(self, input_dim, layers)
+    Actor.__init__(self, layers[-1], action_dim, env_name)
 
-    self.actor_layers = nn.ModuleList()
-    self.actor_layers += [nn.Linear(state_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.actor_layers += [nn.Linear(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], action_dim)
+    self.is_recurrent = True
+    self.init_hidden_state()
 
-    self.action_dim = action_dim
-    self.env_name = env_name
-    self.nonlinearity = nonlinearity
-    self.max_action = max_action
+  def forward(self, x, update_norm=False):
+    return self.deterministic_forward(x, update=update_norm)
 
-    if normc_init:
-      self.initialize_parameters()
 
-  def forward(self, state):
-    x = state
-    for idx, layer in enumerate(self.actor_layers):
-      x = self.nonlinearity(layer(x))
+class GRU_Actor(GRU_Base, Actor):
+  """
+  A class inheriting from GRU_Base and Actor
+  which implements a recurrent deterministic policy.
+  """
+  def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None, nonlinearity=torch.tanh):
 
-    action = torch.tanh(self.network_out(x))
-    return action
+    GRU_Base.__init__(self, input_dim, layers)
+    Actor.__init__(self, layers[-1], action_dim, env_name)
 
-class FF_Stochastic_Actor(Actor):
-  def __init__(self, state_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh, normc_init=True, bounded=False, fixed_std=None):
-    super(FF_Stochastic_Actor, self).__init__()
+    self.is_recurrent = True
+    self.init_hidden_state()
 
-    self.actor_layers = nn.ModuleList()
-    self.actor_layers += [nn.Linear(state_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.actor_layers += [nn.Linear(layers[i], layers[i+1])]
-    self.means = nn.Linear(layers[-1], action_dim)
+  def forward(self, x, update_norm=False):
+    return self.deterministic_forward(x, update=update_norm)
+
+
+class Stochastic_Actor:
+  """
+  The base class for stochastic actors.
+  """
+  def __init__(self, latent, action_dim, env_name, bounded, fixed_std=None):
+
+    self.action_dim        = action_dim
+    self.env_name          = env_name
+    self.means             = nn.Linear(latent, action_dim)
+    self.bounded           = bounded
 
     if fixed_std is None:
-      self.log_stds = nn.Linear(layers[-1], action_dim)
-      self.learn_std = True
-    else:
-      self.fixed_std = fixed_std
-      self.learn_std = False
-
-    self.action_dim = action_dim
-    self.env_name = env_name
-    self.nonlinearity = nonlinearity
-    self.bounded = bounded
-
-    if normc_init:
-      self.initialize_parameters()
+      self.log_stds = nn.Linear(latent, action_dim)
+    self.fixed_std = fixed_std
 
   def _get_dist_params(self, state):
-    x = state
-    for idx, layer in enumerate(self.actor_layers):
-      x = self.nonlinearity(layer(x))
+    x = self._base_forward(state)
 
     mu = self.means(x)
 
-    if self.learn_std:
-      sd = torch.clamp(self.log_stds(x), -2, 1).exp()
+    if self.fixed_std is None:
+      std = torch.clamp(self.log_stds(x), -2, 1).exp()
     else:
-      sd = self.fixed_std
+      std = self.fixed_std
 
-    return mu, sd
+    return mu, std
 
-  def forward(self, state, deterministic=True, return_log_probs=False):
+  def stochastic_forward(self, state, deterministic=True, update=False, log_probs=False):
+    state = self.normalize_state(state, update=update)
     mu, sd = self._get_dist_params(state)
 
-    if not deterministic or return_log_probs:
+    if not deterministic or log_probs:
       dist = torch.distributions.Normal(mu, sd)
       sample = dist.rsample()
 
@@ -110,7 +107,7 @@ class FF_Stochastic_Actor(Actor):
     else:
       action = mu if deterministic else sample
 
-    if return_log_probs:
+    if log_probs:
       log_prob = dist.log_prob(sample)
       if self.bounded:
         log_prob -= torch.log((1 - torch.tanh(sample).pow(2)) + 1e-6)
@@ -123,309 +120,44 @@ class FF_Stochastic_Actor(Actor):
     mu, sd = self._get_dist_params(state)
     return torch.distributions.Normal(mu, sd)
 
-class LSTM_Actor(Actor):
-  def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None, nonlinearity=torch.tanh, normc_init=False, bounded=False):
-    super(LSTM_Actor, self).__init__()
 
-    self.actor_layers = nn.ModuleList()
-    self.actor_layers += [nn.LSTMCell(input_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.actor_layers += [nn.LSTMCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], action_dim)
+class FF_Stochastic_Actor(FF_Base, Stochastic_Actor):
+  """
+  A class inheriting from FF_Base and Stochastic_Actor
+  which implements a recurrent stochastic policy.
+  """
+  def __init__(self, input_dim, action_dim, layers=(256, 256), env_name=None, nonlinearity=torch.tanh, bounded=False, fixed_std=None):
 
-    self.action_dim = action_dim
-    self.init_hidden_state()
-    self.env_name = env_name
-    self.nonlinearity = nonlinearity
-    self.bounded = bounded
-    
-    self.is_recurrent = True
+    FF_Base.__init__(self, input_dim, layers, nonlinearity)
+    Stochastic_Actor.__init__(self, layers[-1], action_dim, env_name, bounded, fixed_std=fixed_std)
 
-    if normc_init:
-      self.initialize_parameters()
+  def forward(self, x, deterministic=True, update_norm=False, return_log_probs=False):
+    return self.stochastic_forward(x, deterministic=deterministic, update=update_norm, log_probs=return_log_probs)
 
-  def get_hidden_state(self):
-    return self.hidden, self.cells
 
-  def set_hidden_state(self, data):
-    if len(data) != 2:
-      print("Got invalid hidden state data.")
-      exit(1)
+class LSTM_Stochastic_Actor(LSTM_Base, Stochastic_Actor):
+  """
+  A class inheriting from LSTM_Base and Stochastic_Actor
+  which implements a recurrent stochastic policy.
+  """
+  def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None, bounded=False, fixed_std=None):
 
-    self.hidden, self.cells = data
-    
-  def init_hidden_state(self, batch_size=1):
-    self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.actor_layers]
-    self.cells  = [torch.zeros(batch_size, l.hidden_size) for l in self.actor_layers]
+    LSTM_Base.__init__(self, input_dim, layers)
+    Stochastic_Actor.__init__(self, layers[-1], action_dim, env_name, bounded, fixed_std=fixed_std)
 
-  def forward(self, x):
-    dims = len(x.size())
+  def forward(self, x, deterministic=True, update_norm=False, return_log_probs=False):
+    return self.stochastic_forward(x, deterministic=deterministic, update=update_norm, log_probs=return_log_probs)
 
-    if dims == 3: # if we get a batch of trajectories
-      self.init_hidden_state(batch_size=x.size(1))
-      y = []
-      for t, x_t in enumerate(x):
-        for idx, layer in enumerate(self.actor_layers):
-          c, h = self.cells[idx], self.hidden[idx]
-          self.hidden[idx], self.cells[idx] = layer(x_t, (h, c))
-          x_t = self.hidden[idx]
-        y.append(x_t)
-      x = torch.stack([x_t for x_t in y])
 
-    else:
-      if dims == 1: # if we get a single timestep (if not, assume we got a batch of single timesteps)
-        x = x.view(1, -1)
+class GRU_Stochastic_Actor(GRU_Base, Stochastic_Actor):
+  """
+  A class inheriting from GRU_Base and Stochastic_Actor
+  which implements a recurrent stochastic policy.
+  """
+  def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None, bounded=False, fixed_std=None):
 
-      for idx, layer in enumerate(self.actor_layers):
-        h, c = self.hidden[idx], self.cells[idx]
-        self.hidden[idx], self.cells[idx] = layer(x, (h, c))
-        x = self.hidden[idx]
+    GRU_Base.__init__(self, input_dim, layers)
+    Stochastic_Actor.__init__(self, layers[-1], action_dim, env_name, bounded, fixed_std=fixed_std)
 
-      if dims == 1:
-        x = x.view(-1)
-
-    action = self.network_out(x)
-    return action
-
-class LSTM_Stochastic_Actor(Actor):
-  def __init__(self, state_dim, action_dim, layers=(128, 128), env_name=None, normc_init=False, bounded=False, fixed_std=None):
-    super(LSTM_Stochastic_Actor, self).__init__()
-
-    self.actor_layers = nn.ModuleList()
-    self.actor_layers += [nn.LSTMCell(state_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.actor_layers += [nn.LSTMCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], action_dim)
-
-    self.action_dim = action_dim
-    self.init_hidden_state()
-    self.env_name = env_name
-    self.bounded = bounded
-    self.is_recurrent = True
-
-    if fixed_std is None:
-      self.log_stds = nn.Linear(layers[-1], action_dim)
-      self.learn_std = True
-    else:
-      self.fixed_std = fixed_std
-      self.learn_std = False
-
-    if normc_init:
-      self.initialize_parameters()
-
-  def get_hidden_state(self):
-    return self.hidden, self.cells
-
-
-  def _get_dist_params(self, state):
-    dims = len(state.size())
-
-    x = state
-    if dims == 3: # if we get a batch of trajectories
-      self.init_hidden_state(batch_size=x.size(1))
-      action = []
-      y = []
-      for t, x_t in enumerate(x):
-        for idx, layer in enumerate(self.actor_layers):
-          c, h = self.cells[idx], self.hidden[idx]
-          self.hidden[idx], self.cells[idx] = layer(x_t, (h, c))
-          x_t = self.hidden[idx]
-        y.append(x_t)
-      x = torch.stack([x_t for x_t in y])
-
-    else:
-      if dims == 1: # if we get a single timestep (if not, assume we got a batch of single timesteps)
-        x = x.view(1, -1)
-
-      for idx, layer in enumerate(self.actor_layers):
-        h, c = self.hidden[idx], self.cells[idx]
-        self.hidden[idx], self.cells[idx] = layer(x, (h, c))
-        x = self.hidden[idx]
-
-      if dims == 1:
-        x = x.view(-1)
-
-    mu = self.network_out(x)
-    if self.learn_std:
-      sd = torch.clamp(self.log_stds(x), -2, 2).exp()
-    else:
-      sd = self.fixed_std
-
-    return mu, sd
-
-  def init_hidden_state(self, batch_size=1):
-    self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.actor_layers]
-    self.cells  = [torch.zeros(batch_size, l.hidden_size) for l in self.actor_layers]
-
-  def forward(self, state, deterministic=True, return_log_probs=False):
-    mu, sd = self._get_dist_params(state)
-
-    if not deterministic or return_log_probs:
-      dist = torch.distributions.Normal(mu, sd)
-      sample = dist.rsample()
-
-    if hasattr(self, 'bounded') and self.bounded:
-      action = torch.tanh(mu) if deterministic else torch.tanh(sample)
-    else:
-      action = mu if deterministic else sample
-
-    if return_log_probs:
-      return action, dist.log_prob(sample)
-    else:
-      return action
-
-  def pdf(self, state):
-    mu, sd = self._get_dist_params(state)
-    return torch.distributions.Normal(mu, sd)
-
-class GRU_Actor(Actor):
-  def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None, nonlinearity=torch.tanh, normc_init=False, bounded=False):
-    super(GRU_Actor, self).__init__()
-
-    self.actor_layers = nn.ModuleList()
-    self.actor_layers += [nn.GRUCell(input_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.actor_layers += [nn.GRUCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], action_dim)
-
-    self.action_dim = action_dim
-    self.init_hidden_state()
-    self.env_name = env_name
-    self.nonlinearity = nonlinearity
-    self.bounded = bounded
-    
-    self.is_recurrent = True
-
-    if normc_init:
-      self.initialize_parameters()
-
-  def get_hidden_state(self):
-    return self.hidden
-
-  def set_hidden_state(self, data):
-    if len(data) != 2:
-      print("Got invalid hidden state data.")
-      exit(1)
-
-    self.hidden = data
-    
-  def init_hidden_state(self, batch_size=1):
-    self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.actor_layers]
-
-  def forward(self, x):
-    dims = len(x.size())
-
-    if dims == 3: # if we get a batch of trajectories
-      self.init_hidden_state(batch_size=x.size(1))
-      y = []
-      for t, x_t in enumerate(x):
-        for idx, layer in enumerate(self.actor_layers):
-          h = self.hidden[idx]
-          self.hidden[idx] = layer(x_t, h)
-          x_t = self.hidden[idx]
-        y.append(x_t)
-      x = torch.stack([x_t for x_t in y])
-
-    else:
-      if dims == 1: # if we get a single timestep (if not, assume we got a batch of single timesteps)
-        x = x.view(1, -1)
-
-      for idx, layer in enumerate(self.actor_layers):
-        h = self.hidden[idx]
-        self.hidden[idx] = layer(x, h)
-        x = self.hidden[idx]
-
-      if dims == 1:
-        x = x.view(-1)
-
-    action = self.network_out(x)
-    return action
-
-class GRU_Stochastic_Actor(Actor):
-  def __init__(self, state_dim, action_dim, layers=(128, 128), env_name=None, normc_init=False, bounded=False, fixed_std=None):
-    super(GRU_Stochastic_Actor, self).__init__()
-
-    self.actor_layers = nn.ModuleList()
-    self.actor_layers += [nn.GRUCell(state_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.actor_layers += [nn.GRUCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], action_dim)
-
-    self.action_dim = action_dim
-    self.init_hidden_state()
-    self.env_name = env_name
-    self.bounded = bounded
-    self.is_recurrent = True
-
-    if fixed_std is None:
-      self.log_stds = nn.Linear(layers[-1], action_dim)
-      self.learn_std = True
-    else:
-      self.fixed_std = fixed_std
-      self.learn_std = False
-
-    if normc_init:
-      self.initialize_parameters()
-
-  def get_hidden_state(self):
-    return self.hidden
-
-  def _get_dist_params(self, state):
-    dims = len(state.size())
-
-    x = state
-    if dims == 3: # if we get a batch of trajectories
-      self.init_hidden_state(batch_size=x.size(1))
-      action = []
-      y = []
-      for t, x_t in enumerate(x):
-        for idx, layer in enumerate(self.actor_layers):
-          h = self.hidden[idx]
-          self.hidden[idx] = layer(x_t, h)
-          x_t = self.hidden[idx]
-        y.append(x_t)
-      x = torch.stack([x_t for x_t in y])
-
-    else:
-      if dims == 1: # if we get a single timestep (if not, assume we got a batch of single timesteps)
-        x = x.view(1, -1)
-
-      for idx, layer in enumerate(self.actor_layers):
-        h = self.hidden[idx]
-        self.hidden[idx] = layer(x, h)
-        x = self.hidden[idx]
-
-      if dims == 1:
-        x = x.view(-1)
-
-    mu = self.network_out(x)
-    if self.learn_std:
-      sd = torch.clamp(self.log_stds(x), -2, 2).exp()
-    else:
-      sd = self.fixed_std
-
-    return mu, sd
-
-  def init_hidden_state(self, batch_size=1):
-    self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.actor_layers]
-
-  def forward(self, state, deterministic=True, return_log_probs=False):
-    mu, sd = self._get_dist_params(state)
-
-    if not deterministic or return_log_probs:
-      dist = torch.distributions.Normal(mu, sd)
-      sample = dist.rsample()
-
-    if hasattr(self, 'bounded') and self.bounded:
-      action = torch.tanh(mu) if deterministic else torch.tanh(sample)
-    else:
-      action = mu if deterministic else sample
-
-    if return_log_probs:
-      return action, dist.log_prob(sample)
-    else:
-      return action
-
-  def pdf(self, state):
-    mu, sd = self._get_dist_params(state)
-    return torch.distributions.Normal(mu, sd)
+  def forward(self, x, deterministic=True, update_norm=False, return_log_probs=False):
+    return self.stochastic_forward(x, deterministic=deterministic, update=update_norm, log_probs=return_log_probs)

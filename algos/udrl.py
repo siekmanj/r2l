@@ -84,7 +84,7 @@ class UDRL_Worker:
     if input_norm is not None:
       self.behavioral_fn.welford_state_mean, self.behavioral_fn.welford_state_mean_diff, self.behavioral_fn.welford_state_n = input_norm
 
-  def collect_experience(self, max_traj_len, min_steps):
+  def collect_experience(self, max_traj_len, min_steps, cmd_reward, noise=None):
     with torch.no_grad():
       start = time()
 
@@ -104,20 +104,27 @@ class UDRL_Worker:
           behavioral_fn.init_hidden_state()
 
         while not done and traj_len < max_traj_len:
-            state      = torch.Tensor(state)
-            norm_state = behavioral_fn.normalize_state(state, update=False)
-            action     = behavioral_fn(norm_state, False)
+          state      = torch.Tensor(state)
+          norm_state = behavioral_fn.normalize_state(state, update=False)
 
-            next_state, reward, done, _ = self.env.step(action.numpy())
+          horizon    = 1 - torch.exp(-traj_len / 50)
+          cmd_reward = torch.Tensor(cmd_reward)
 
-            reward = np.array([reward])
+          state = torch.stack(horizon, cmd_reward, norm_state)
+          print(state.size())
 
-            memory.push(state.numpy(), action.numpy(), reward, horizon)
+          action     = behavioral_fn(state, False).numpy()
 
-            state = next_state
+          next_state, reward, done, _ = self.env.step(action)
 
-            traj_len += 1
-            num_steps += 1
+          reward = np.array([reward])
+
+          memory.push(state.numpy(), action.numpy(), reward, horizon.numpy(), done)
+
+          state = next_state
+
+          traj_len += 1
+          num_steps += 1
 
       return memory
 
@@ -125,6 +132,43 @@ class UDRL:
   def __init__(self, behavior_fn, 
 
 def run_experiment(args):
+  torch.set_num_threads(1)
+
+  from util.env import env_factory, train_normalizer
+  from util.log import create_logger
+
+  from policies.actor import FF_Actor, LSTM_Actor, GRU_Actor
+
+  import locale, os
+  locale.setlocale(locale.LC_ALL, '')
+
+  # wrapper function for creating parallelized envs
+  env_fn = env_factory(args.env)
+  obs_dim = env_fn().observation_space.shape[0]
+  action_dim = env_fn().action_space.shape[0]
+
+  # Set seeds
+  torch.manual_seed(args.seed)
+  np.random.seed(args.seed)
+
+  std = torch.ones(action_dim)*args.std
+
+  layers = [int(x) for x in args.layers.split(',')]
+
+  if args.arch.lower() == 'lstm':
+    policy = LSTM_Actor(obs_dim, action_dim, env_name=args.env, layers=layers)
+  elif args.arch.lower() == 'gru':
+    policy = GRU_Actor(obs_dim, action_dim, env_name=args.env, layers=layers)
+  elif args.arch.lower() == 'ff':
+    policy = FF_Actor(obs_dim, action_dim, env_name=args.env, layers=layers)
+  else:
+    raise RuntimeError
+
+  policy.legacy = False
+  env = env_fn()
+
+  print("Collecting normalization statistics with {} states...".format(args.prenormalize_steps))
+  train_normalizer(policy, args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
   pass
 
 

@@ -113,7 +113,7 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
 
         env.speed = 0.5
         env.side_speed = 0.0
-        state = policy.normalize_state(state, update=False)
+        #state = policy.normalize_state(state, update=False)
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
         if visualize:
@@ -155,11 +155,10 @@ def train_normalizer(policy, min_timesteps, max_traj_len=1000, noise=0.5):
         policy.init_hidden_state()
 
       while not done and timesteps < max_traj_len:
-        state = policy.normalize_state(state, update=True)
         if noise is None:
-          action = policy.forward(state, deterministic=False).numpy()
+          action = policy.forward(state, update_norm=True, deterministic=False).numpy()
         else:
-          action = policy.forward(state).numpy() + np.random.normal(0, noise, size=policy.action_dim)
+          action = policy.forward(state, update_norm=True).numpy() + np.random.normal(0, noise, size=policy.action_dim)
         state, _, done, _ = env.step(action)
         timesteps += 1
         total_t += 1

@@ -159,9 +159,9 @@ class PPO_Worker:
 
         while not done and traj_len < max_traj_len:
             state = torch.Tensor(state)
-            norm_state = actor.normalize_state(state, update=False)
-            action = actor(norm_state, False)
-            value = critic(norm_state)
+            #norm_state = actor.normalize_state(state, update=False)
+            action = actor(state, False)
+            value = critic(state)
 
             next_state, reward, done, _ = self.env.step(action.numpy())
 
@@ -194,7 +194,7 @@ class PPO_Worker:
           self.actor.init_hidden_state()
 
         while not done and traj_len < max_traj_len:
-          state = self.actor.normalize_state(state, update=False)
+          #state = self.actor.normalize_state(state, update=False)
           action = self.actor(state, deterministic=True)
 
           next_state, reward, done, _ = self.env.step(action.numpy())
@@ -235,7 +235,7 @@ class PPO:
 
     def update_policy(self, states, actions, returns, advantages, mask):
       with torch.no_grad():
-        states = self.actor.normalize_state(states, update=False)
+        #states = self.actor.normalize_state(states, update=False)
         old_pdf = self.old_actor.pdf(states)
         old_log_probs = old_pdf.log_prob(actions).sum(-1, keepdim=True)
 

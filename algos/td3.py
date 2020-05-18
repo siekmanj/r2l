@@ -48,8 +48,8 @@ class TD3():
     states, actions, next_states, rewards, not_dones, steps, mask = replay_buffer.sample(batch_size, sample_trajectories=self.recurrent, max_len=traj_len)
 
     with torch.no_grad():
-      states      = self.actor.normalize_state(states, update=False)
-      next_states = self.actor.normalize_state(next_states, update=False)
+      #states      = self.actor.normalize_state(states, update=False)
+      #next_states = self.actor.normalize_state(next_states, update=False)
 
       noise        = (torch.randn_like(actions) * self.policy_noise).clamp(-noise_clip, noise_clip)
       next_actions = (self.target_actor(next_states) + noise)

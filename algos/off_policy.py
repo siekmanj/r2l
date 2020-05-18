@@ -94,7 +94,7 @@ class ReplayBuffer():
 
 def collect_experience(policy, env, replay_buffer, initial_state, steps, noise=0.2, max_len=1000):
   with torch.no_grad():
-    state = policy.normalize_state(torch.Tensor(initial_state))
+    #state = policy.normalize_state(torch.Tensor(initial_state))
 
     if noise is None:
       a = policy.forward(state, deterministic=False).numpy()

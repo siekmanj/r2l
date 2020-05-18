@@ -169,12 +169,12 @@ def run_experiment(args):
 
   # wrapper function for creating parallelized policies
   def policy_thunk():
-    from policies.actor import FF_Actor, LSTM_Actor, Linear_Actor
+    from policies.actor import FF_Actor, LSTM_Actor
     if args.load_model is not None:
       return torch.load(args.load_model)
     else:
-      if not args.arch.lower() == 'ff':
-        policy = Linear_Actor(obs_space, act_space, layers=layers).float()
+      if args.arch.lower() == 'ff':
+        policy = FF_Actor(obs_space, act_space, layers=layers, nonlinearity=torch.nn.Identity()).float()
       elif args.arch.lower() == 'lstm':
         policy = LSTM_Actor(obs_space, act_space, layers=layers).float()
       elif args.arch.lower() == 'gru':
@@ -198,8 +198,8 @@ def run_experiment(args):
 
     timesteps = 0
     while not done and timesteps < traj_len:
-      if normalize:
-        state = policy.normalize_state(state)
+      #if normalize:
+      #  state = policy.normalize_state(state)
       action = policy.forward(state).detach().numpy()
       state, reward, done, _ = env.step(action)
       state = torch.tensor(state).float()

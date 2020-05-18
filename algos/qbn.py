@@ -35,8 +35,8 @@ def collect_data(actor, timesteps, max_traj_len, seed):
 
       while not done and traj_len < max_traj_len:
         state        = torch.as_tensor(state).float()
-        norm_state   = actor.normalize_state(state, update=False)
-        action       = actor(norm_state)
+        #norm_state   = actor.normalize_state(state, update=False)
+        action       = actor(state)
         hidden = actor.hidden[0].view(-1)
 
         if layertype == 'LSTMCell':
@@ -79,7 +79,8 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
       state = torch.as_tensor(env.reset())
       while not done and traj_len < max_traj_len:
         state        = torch.as_tensor(state).float()
-        norm_state   = actor.normalize_state(state, update=False)
+        norm_state   = state
+        #norm_state   = actor.normalize_state(state, update=False)
         hidden_state = actor.hidden[0]
         if layertype == 'LSTMCell':
           cell_state   = actor.cells[0]
@@ -345,7 +346,8 @@ def run_experiment(args):
       while not done and traj_len < args.traj_len:
         with torch.no_grad():
           state        = torch.as_tensor(state).float()
-          norm_state   = policy.normalize_state(state, update=False)
+          #norm_state   = policy.normalize_state(state, update=False)
+          norm_state = state
 
         hidden        = policy.hidden[0]
         #policy.hidden = [hidden_qbn(hidden)]

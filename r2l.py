@@ -146,7 +146,6 @@ if __name__ == "__main__":
     parser.add_argument('--tau',                    default=0.01, type=float)     # update factor for target networks
     parser.add_argument("--a_lr",           "-alr", default=1e-5,  type=float)    # adam learning rate for critic
     parser.add_argument("--c_lr",           "-clr", default=1e-4,  type=float)    # adam learning rate for actor
-    parser.add_argument("--normc_init",             default=True,  type=bool)     # using col norm to init weights
     parser.add_argument("--normalize"       '-n',   action='store_true')          # normalize states online
     parser.add_argument("--batch_size",             default=64,    type=int)      # batch size for policy update
     parser.add_argument("--updates",                default=1,    type=int)       # (if recurrent) number of times to update policy per episode

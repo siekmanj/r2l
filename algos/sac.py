@@ -46,8 +46,8 @@ class SAC():
     state, action, next_state, reward, not_done, steps, mask = buff.sample(batch_size)
 
     with torch.no_grad():
-      state      = self.actor.normalize_state(state, update=False)
-      next_state = self.actor.normalize_state(next_state, update=False)
+      #state      = self.actor.normalize_state(state, update=False)
+      #next_state = self.actor.normalize_state(next_state, update=False)
 
       next_action, next_log_prob = self.actor(next_state, deterministic=False, return_log_probs=True)
       next_target_q1 = self.target_q1(next_state, next_action)
