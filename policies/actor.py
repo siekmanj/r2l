@@ -82,7 +82,8 @@ class Stochastic_Actor:
       self.log_stds = nn.Linear(latent, action_dim)
     self.fixed_std = fixed_std
 
-  def _get_dist_params(self, state):
+  def _get_dist_params(self, state, update=False):
+    state = self.normalize_state(state, update=update)
     x = self._base_forward(state)
 
     mu = self.means(x)
@@ -95,8 +96,7 @@ class Stochastic_Actor:
     return mu, std
 
   def stochastic_forward(self, state, deterministic=True, update=False, log_probs=False):
-    state = self.normalize_state(state, update=update)
-    mu, sd = self._get_dist_params(state)
+    mu, sd = self._get_dist_params(state, update=update)
 
     if not deterministic or log_probs:
       dist = torch.distributions.Normal(mu, sd)
