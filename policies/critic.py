@@ -83,7 +83,7 @@ class FF_V(FF_Base, V):
   which implements a feedforward value function.
   """
   def __init__(self, input_dim, layers=(256, 256), env_name=None):
-    FF_Base.__init__(self, input_dim, layers)
+    FF_Base.__init__(self, input_dim, layers, F.relu)
     V.__init__(self, layers[-1], env_name)
 
   def forward(self, state):
