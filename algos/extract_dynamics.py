@@ -11,21 +11,27 @@ from policies.fit import Model
 from util.env import env_factory
 
 def get_hiddens(policy):
+  """
+  A helper function for flattening the memory of a recurrent
+  policy into a vector.
+  """
   hiddens = []
   if hasattr(policy, 'hidden'):
     hiddens += [h.data for h in policy.hidden]
   
   if hasattr(policy, 'cells'):
     hiddens += [c.data for c in policy.cells]
-  
-  for layer in hiddens:
-    if layer.size(0) != 1:
-      print("Invalid batch dim.")
-      raise RuntimeError
 
+  if hasattr(policy, 'latent'):
+    hiddens += [l for l in policy.latent]
+  
   return torch.cat([layer.view(-1) for layer in hiddens]).numpy()
   
 def collect_point(policy, max_traj_len):
+  """
+  A helper function which collects a single memory-dynamics parameter pair
+  from a trajectory.
+  """
   legacy = 'legacy' if not (hasattr(policy, 'legacy') and policy.legacy == False) else ''
   env = env_factory(policy.env_name + legacy)()
   env.dynamics_randomization = True
@@ -49,6 +55,10 @@ def collect_point(policy, max_traj_len):
 
 @ray.remote
 def collect_data(policy, max_traj_len=45, points=500):
+  """
+  A ray remote function which collects a series of memory-dynamics pairs
+  and returns a dataset.
+  """
   policy = deepcopy(policy)
   torch.set_num_threads(1)
   with torch.no_grad():
@@ -73,6 +83,10 @@ def collect_data(policy, max_traj_len=45, points=500):
     return frics, damps, masses, quats, latent
   
 def concat(datalist):
+  """
+  Concatenates several datasets into one larger
+  dataset.
+  """
   frics    = []
   damps    = []
   masses   = []
@@ -94,6 +108,9 @@ def concat(datalist):
   return frics, damps, masses, quats, latents
 
 def run_experiment(args):
+  """
+  The entry point for the dynamics extraction algorithm.
+  """
   from util.log import create_logger
 
   locale.setlocale(locale.LC_ALL, '')

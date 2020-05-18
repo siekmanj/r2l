@@ -77,7 +77,6 @@ class V:
     return self.network_out(x)
 
 
-
 class FF_V(FF_Base, V):
   """
   A class inheriting from FF_Base and V

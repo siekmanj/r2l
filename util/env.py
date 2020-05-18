@@ -113,7 +113,6 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
 
         env.speed = 0.5
         env.side_speed = 0.0
-        #state = policy.normalize_state(state, update=False)
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
         if visualize:

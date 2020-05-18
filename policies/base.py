@@ -5,6 +5,12 @@ import torch.nn.functional as F
 from torch import sqrt
 
 def normc_fn(m):
+  """
+  This function multiplies the weights of a pytorch linear layer by a small
+  number so that outputs early in training are close to zero, which means 
+  that gradients are larger in magnitude. This means a richer gradient signal
+  is propagated back and speeds up learning (probably).
+  """
   if m.__class__.__name__.find('Linear') != -1:
     m.weight.data.normal_(0, 1)
     m.weight.data *= 1 / torch.sqrt(m.weight.data.pow(2).sum(1, keepdim=True))
@@ -18,17 +24,10 @@ def create_layers(layer_fn, input_dim, layer_sizes):
     ret += [layer_fn(layer_sizes[i], layer_sizes[i+1])]
   return ret
 
-#def ff_forward(layers, nonlinearity, x):
-#  for idx, layer in enumerate(layers):
-#    x = nonlinearity(layer(x))
-#  return x
-#
-#def lstm_forward(layers, x):
-
 class Net(nn.Module):
   """
-  The base class for neural networks. Includes optional
-  functions for state normalization.
+  The base class which all policy networks inherit from. It includes methods
+  for normalizing states.
   """
   def __init__(self):
     super(Net, self).__init__()
@@ -42,6 +41,10 @@ class Net(nn.Module):
     self.env_name = None
 
   def normalize_state(self, state, update=True):
+    """
+    Use Welford's algorithm to normalize a state, and optionally update the statistics
+    for normalizing states using the new state, online.
+    """
     state = torch.Tensor(state)
 
     if self.welford_state_n == 1:
@@ -56,7 +59,6 @@ class Net(nn.Module):
         self.welford_state_n += 1
       else:
         raise RuntimeError # this really should not happen
-
     return (state - self.welford_state_mean) / sqrt(self.welford_state_mean_diff / self.welford_state_n)
 
   def copy_normalizer_stats(self, net):

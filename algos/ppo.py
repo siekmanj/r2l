@@ -194,7 +194,7 @@ class PPO_Worker:
           self.actor.init_hidden_state()
 
         while not done and traj_len < max_traj_len:
-          #state = self.actor.normalize_state(state, update=False)
+          state = self.actor.normalize_state(state, update=False)
           action = self.actor(state, deterministic=True)
 
           next_state, reward, done, _ = self.env.step(action.numpy())
@@ -225,6 +225,8 @@ class PPO:
       self.entropy_coeff = args.entropy_coeff
       self.grad_clip = args.grad_clip
 
+      self.env = env_fn()
+
       if not ray.is_initialized():
         if args.redis is not None:
           ray.init(redis_address=args.redis)
@@ -233,13 +235,12 @@ class PPO:
 
       self.workers = [PPO_Worker.remote(actor, critic, env_fn, args.discount) for _ in range(args.workers)]
 
-    def update_policy(self, states, actions, returns, advantages, mask):
+    def update_policy(self, states, actions, returns, advantages, mask, mirror=False):
       with torch.no_grad():
-        #states = self.actor.normalize_state(states, update=False)
         old_pdf = self.old_actor.pdf(states)
         old_log_probs = old_pdf.log_prob(actions).sum(-1, keepdim=True)
 
-      pdf = self.actor.pdf(states)
+      pdf = self.actor.pdf(norm_states)
       
       log_probs = pdf.log_prob(actions).sum(-1, keepdim=True)
 
@@ -248,14 +249,34 @@ class PPO:
       clip_loss = ratio.clamp(0.8, 1.2) * advantages * mask
       actor_loss = -torch.min(cpi_loss, clip_loss).mean()
 
-      critic_loss = 0.5 * ((returns - self.critic(states)) * mask).pow(2).mean()
+      critic_loss = 0.5 * ((returns - self.critic(norm_states)) * mask).pow(2).mean()
 
       entropy_penalty = -(self.entropy_coeff * pdf.entropy() * mask).mean()
+
+      mirror_loss = torch.zeros(1)
+      if mirror:
+        with torch.no_grad():
+          state_fn  = self.env.mirror_state
+          action_fn = self.env.mirror_action
+
+          squished       = np.prod(list(states.size())[:-1]) 
+          state_dim      = states.size()[-1]
+          action_dim     = actions.size()[-1]
+          state_squished = states.view(squished, state_dim).numpy() # squeeze states tensor into [seq * batch, statedim]
+
+          mirrored_states  = torch.from_numpy(state_fn(state_squished)).view(states.size())
+          mirrored_states  = self.actor.normalize_state(mirrored_states, update=False)
+
+          action_squished  = self.actor(mirrored_states).view(squished, action_dim).numpy()
+          mirrored_actions = torch.from_numpy(action_fn(action_squished)).view(actions.size())
+
+        unmirrored_actions   = self.actor(norm_states)
+        mirror_loss = 4 * (unmirrored_actions - mirrored_actions).pow(2).mean()
 
       self.actor_optim.zero_grad()
       self.critic_optim.zero_grad()
 
-      (actor_loss + entropy_penalty).backward()
+      (actor_loss + entropy_penalty + mirror_loss).backward()
       critic_loss.backward()
 
       torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.grad_clip)
@@ -264,7 +285,7 @@ class PPO:
       self.critic_optim.step()
 
       with torch.no_grad():
-        return kl_divergence(pdf, old_pdf).mean().numpy(), ((actor_loss + entropy_penalty).item(), critic_loss.item())
+        return kl_divergence(pdf, old_pdf).mean().numpy(), ((actor_loss + entropy_penalty).item(), critic_loss.item(), mirror_loss.item())
 
     def merge_buffers(self, buffers):
       memory = Buffer()
@@ -285,7 +306,7 @@ class PPO:
         memory.size     += b.size
       return memory
 
-    def do_iteration(self, num_steps, max_traj_len, epochs, kl_thresh=0.02, verbose=True, batch_size=64):
+    def do_iteration(self, num_steps, max_traj_len, epochs, kl_thresh=0.02, verbose=True, batch_size=64, mirror=False):
       self.old_actor.load_state_dict(self.actor.state_dict())
 
       start = time()
@@ -314,16 +335,18 @@ class PPO:
       start  = time()
       kls    = []
       done = False
+      a_loss = []
+      c_loss = []
+      m_loss = []
       for epoch in range(epochs):
-        a_loss = []
-        c_loss = []
         for batch in memory.sample(batch_size=batch_size, recurrent=self.recurrent):
           states, actions, returns, advantages, mask = batch
           
-          kl, losses = self.update_policy(states, actions, returns, advantages, mask)
+          kl, losses = self.update_policy(states, actions, returns, advantages, mask, mirror=mirror)
           kls += [kl]
           a_loss += [losses[0]]
           c_loss += [losses[1]]
+          m_loss += [losses[2]]
 
           if max(kls) > kl_thresh:
               done = True
@@ -338,7 +361,7 @@ class PPO:
 
       if verbose:
         print("\t{:3.2f}s to update policy.".format(time() - start))
-      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), len(memory)
+      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), np.mean(m_loss), len(memory)
 
 def run_experiment(args):
   torch.set_num_threads(1)
@@ -376,7 +399,6 @@ def run_experiment(args):
     critic = FF_V(obs_dim, layers=layers)
   else:
     raise RuntimeError
-
   policy.legacy = False
   env = env_fn()
 
@@ -423,10 +445,13 @@ def run_experiment(args):
   timesteps = 0
   best_reward = None
   while timesteps < args.timesteps:
-    eval_reward, kl, a_loss, c_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl)
+    eval_reward, kl, a_loss, c_loss, m_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl, mirror=args.mirror)
 
     timesteps += steps
-    print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))
+    if m_loss != 0:
+      print("iter {:4d} | return: {:5.2f} | mirror {:6.5f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, m_loss, kl, timesteps))
+    else:
+      print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))
 
     if best_reward is None or eval_reward > best_reward:
       print("\t(best policy so far! saving to {})".format(args.save_actor))
@@ -442,5 +467,6 @@ def run_experiment(args):
       logger.add_scalar(args.env + '/return', eval_reward, timesteps)
       logger.add_scalar(args.env + '/actor loss', a_loss, timesteps)
       logger.add_scalar(args.env + '/critic loss', c_loss, timesteps)
+      logger.add_scalar(args.env + '/mirror loss', m_loss, timesteps)
     itr += 1
   print("Finished ({} of {}).".format(timesteps, args.timesteps))
