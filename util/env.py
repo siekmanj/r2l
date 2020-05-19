@@ -35,11 +35,13 @@ def env_factory(path, verbose=False, **kwargs):
         no_delta = True
       else:
         no_delta = False
+      no_delta = True
       
       if 'stateest' in path or 'state_est' in path:
         state_est = True
       else:
         state_est = False
+      state_est = True
 
       if 'clock_based' in path or 'clockbased' in path:
         clock = True
@@ -55,6 +57,7 @@ def env_factory(path, verbose=False, **kwargs):
         legacy = True
       else:
         legacy = False
+      legacy = False
 
       if verbose:
         print("Created cassie env with arguments:")
