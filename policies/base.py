@@ -219,6 +219,7 @@ class QBN_GRU_Base(Net):
     if dims == 3: # if we get a batch of trajectories
       self.init_hidden_state(batch_size=x.size(1))
       y = []
+      self.memory_states = []
       for t, x_t in enumerate(x):
         h_t = self.hidden
         h_t = self.memory(x_t, h_t)
