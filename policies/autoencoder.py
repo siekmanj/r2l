@@ -20,6 +20,9 @@ class TernaryTanh(torch.autograd.Function):
     return dx
 ternaryTanh = TernaryTanh.apply
 
+def ternary_tanh(x):
+  return ternaryTanh(1.5 * torch.tanh(x) + 0.5 * torch.tanh(-3 * x))
+
 class QBN(nn.Module):
   """
   A neural network autoencoder which compresses information using
@@ -45,7 +48,8 @@ class QBN(nn.Module):
     for layer in self.encoder_layers[:-1]:
       x = torch.tanh(layer(x))
     x = self.encoder_layers[-1](x)
-    return ternaryTanh(1.5 * torch.tanh(x) + 0.5 * torch.tanh(-3 * x))
+    #return ternaryTanh(1.5 * torch.tanh(x) + 0.5 * torch.tanh(-3 * x))
+    return ternary_tanh(x)
 
   def decode(self, x):
     for layer in self.decoder_layers[:-1]:

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from policies.base import FF_Base, LSTM_Base, GRU_Base
+from policies.base import FF_Base, LSTM_Base, GRU_Base, QBN_GRU_Base
 
 class Actor:
   """
@@ -167,3 +167,21 @@ class GRU_Stochastic_Actor(GRU_Base, Stochastic_Actor):
 
   def forward(self, x, deterministic=True, update_norm=False, return_log_probs=False):
     return self.stochastic_forward(x, deterministic=deterministic, update=update_norm, log_probs=return_log_probs)
+
+class QBN_GRU_Stochastic_Actor(QBN_GRU_Base, Stochastic_Actor):
+  """
+  A class inheriting from QBN_GRU_Base and Stochastic_Actor
+  which implements a discrete, recurrent stochastic policy.
+  """
+  def __init__(self, input_dim, action_dim, layers=(128, 128), env_name=None, bounded=False, fixed_std=None):
+
+    QBN_GRU_Base.__init__(self, input_dim)
+    Stochastic_Actor.__init__(self, self.latent_output_size, action_dim, env_name, bounded, fixed_std=fixed_std)
+
+    self.is_recurrent = True
+    self.init_hidden_state()
+
+  def forward(self, x, deterministic=True, update_norm=False, return_log_probs=False):
+    return self.stochastic_forward(x, deterministic=deterministic, update=update_norm, log_probs=return_log_probs)
+
+

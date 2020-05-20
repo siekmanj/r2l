@@ -352,7 +352,7 @@ class PPO:
               break
 
         if verbose:
-          print("\t\tepoch {:2d} kl {:4.3f}, actor loss {:6.3f}, critic loss {:6.3f}".format(epoch+1, np.mean(kls), np.mean(a_loss), np.mean(c_loss)))
+          print("\t\tepoch {:2d} kl {:6.5f}, actor loss {:6.3f}, critic loss {:6.3f}".format(epoch+1, np.mean(kls), np.mean(a_loss), np.mean(c_loss)))
 
         if done:
           break
@@ -368,7 +368,7 @@ def run_experiment(args):
   from util.log import create_logger
 
   from policies.critic import FF_V, LSTM_V, GRU_V
-  from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor, GRU_Stochastic_Actor
+  from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor, GRU_Stochastic_Actor, QBN_GRU_Stochastic_Actor
 
   import locale, os
   locale.setlocale(locale.LC_ALL, '')
@@ -391,6 +391,9 @@ def run_experiment(args):
     critic = LSTM_V(obs_dim, layers=layers)
   elif args.arch.lower() == 'gru':
     policy = GRU_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
+    critic = GRU_V(obs_dim, layers=layers)
+  elif args.arch.lower() == 'qbngru':
+    policy = QBN_GRU_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
     critic = GRU_V(obs_dim, layers=layers)
   elif args.arch.lower() == 'ff':
     policy = FF_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)

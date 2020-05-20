@@ -173,3 +173,79 @@ class GRU_Base(Net):
       if dims == 1:
         x = x.view(-1)
     return x
+
+from policies.autoencoder import ternary_tanh
+class QBN_GRU_Base(Net):
+  """
+  The base class for QBN-GRU networks.
+  """
+  def __init__(self, in_dim):
+    super(QBN_GRU_Base, self).__init__()
+
+    obs_bottleneck = 8
+    m_bottleneck   = 8
+    m_size         = 32
+    latent         = 16
+
+    self.obs_qbn       = create_layers(nn.Linear, in_dim, (int(abs(in_dim - obs_bottleneck)/2), obs_bottleneck))
+    self.memory        = nn.GRUCell(obs_bottleneck, m_size)
+    self.memory2qbn    = create_layers(nn.Linear, m_size, [latent, m_bottleneck])
+    self.qbn2memory    = create_layers(nn.Linear, m_bottleneck, [latent, m_size])
+    self.action_latent = create_layers(nn.Linear, m_size, [latent])
+    
+    self.memory_size        = m_size
+    self.latent_output_size = latent
+
+  def get_hidden_state(self):
+    return self.hidden
+
+  def init_hidden_state(self, batch_size=1):
+    self.hidden = torch.zeros(batch_size, self.memory_size)
+
+  def _base_forward(self, x):
+    for layer in self.obs_qbn[:-1]:
+      x = torch.tanh(layer(x))
+    x = ternary_tanh(self.obs_qbn[-1](x))
+
+    dims = len(x.size())
+    if dims == 3: # if we get a batch of trajectories
+      self.init_hidden_state(batch_size=x.size(1))
+      y = []
+      for t, x_t in enumerate(x):
+        h_t = self.hidden
+        h_t = self.memory(x_t, h_t)
+        for layer in self.memory2qbn[:-1]:
+          h_t = torch.tanh(layer(h_t))
+        h_t = ternary_tanh(self.memory2qbn[-1](h_t))
+
+        for layer in self.qbn2memory:
+          h_t = torch.tanh(layer(h_t))
+
+        self.hidden = h_t
+        y.append(h_t)
+      x = torch.stack([h_t for h_t in y])
+
+    else:
+      if dims == 1: # if we get a single timestep (if not, assume we got a batch of single timesteps)
+        x = x.view(1, -1)
+
+      h_t = self.hidden
+      h_t = self.memory(x, h_t)
+
+      for layer in self.memory2qbn[:-1]:
+        h_t = torch.tanh(layer(h_t))
+      h_t = ternary_tanh(self.memory2qbn[-1](h_t))
+
+      for layer in self.qbn2memory:
+        h_t = torch.tanh(layer(h_t))
+
+      self.hidden = h_t
+
+      if dims == 1:
+        x = h_t.view(-1)
+
+    for layer in self.action_latent[:-1]:
+      x = torch.tanh(layer(x))
+    x = ternary_tanh(self.action_latent[-1](x))
+
+    return x
