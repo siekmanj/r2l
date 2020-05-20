@@ -124,6 +124,9 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         timesteps += 1
         total_t += 1
 
+        if hasattr(policy, 'get_quantized_states'):
+          print(policy.get_quantized_states())
+
         if visualize:
           if hasattr(env, 'simrate'):
             # assume 30hz (hack)

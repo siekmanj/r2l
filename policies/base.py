@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 from torch import sqrt
 
@@ -202,10 +203,17 @@ class QBN_GRU_Base(Net):
   def init_hidden_state(self, batch_size=1):
     self.hidden = torch.zeros(batch_size, self.memory_size)
 
+  def get_quantized_states(self):
+    obs_encoding = ''.join(map(str, np.round(self.obs_states.numpy() + 1).astype(int)))
+    mem_encoding = ''.join(map(str, np.round(self.memory_states[0].numpy() + 1).astype(int)))
+    #act_encoding = ''.join(map(str, np.round(self.action_states.numpy() + 1).astype(int)))
+    return obs_encoding, mem_encoding#, act_encoding
+
   def _base_forward(self, x):
     for layer in self.obs_qbn[:-1]:
       x = torch.tanh(layer(x))
     x = ternary_tanh(self.obs_qbn[-1](x))
+    self.obs_states = x
 
     dims = len(x.size())
     if dims == 3: # if we get a batch of trajectories
@@ -218,12 +226,15 @@ class QBN_GRU_Base(Net):
           h_t = torch.tanh(layer(h_t))
         h_t = ternary_tanh(self.memory2qbn[-1](h_t))
 
+        self.memory_states.append(h_t)
+
         for layer in self.qbn2memory:
           h_t = torch.tanh(layer(h_t))
 
         self.hidden = h_t
         y.append(h_t)
       x = torch.stack([h_t for h_t in y])
+      self.memory_states = torch.stack([h_q for h_q in self.memory_states])
 
     else:
       if dims == 1: # if we get a single timestep (if not, assume we got a batch of single timesteps)
@@ -236,6 +247,8 @@ class QBN_GRU_Base(Net):
         h_t = torch.tanh(layer(h_t))
       h_t = ternary_tanh(self.memory2qbn[-1](h_t))
 
+      self.memory_states = h_t
+
       for layer in self.qbn2memory:
         h_t = torch.tanh(layer(h_t))
 
@@ -244,8 +257,8 @@ class QBN_GRU_Base(Net):
       if dims == 1:
         x = h_t.view(-1)
 
-    for layer in self.action_latent[:-1]:
+    for layer in self.action_latent:
       x = torch.tanh(layer(x))
-    x = ternary_tanh(self.action_latent[-1](x))
+    #x = ternary_tanh(self.action_latent[-1](x))
 
     return x
