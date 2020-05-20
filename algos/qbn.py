@@ -307,7 +307,6 @@ ef run_experiment(args):
         cell_loss = 0.5 * (test_cells - cell_qbn(test_cells)).pow(2).mean()
 
     # evaluate QBN performance one-by-one
->>>>>>> master
     print("\nEvaluating...")
     d_reward, s_states, h_states, c_states, a_states = evaluate(policy, obs_qbn=obs_qbn, hid_qbn=hidden_qbn, cel_qbn=cell_qbn, act_qbn=action_qbn)
     c_reward = 0.0
@@ -356,6 +355,11 @@ ef run_experiment(args):
   hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=args.lr, eps=1e-6)
   if layertype == 'LSTMCell':
     cell_optim   = optim.Adam(cell_qbn.parameters(), lr=args.lr, eps=1e-6)
+    optims = [obs_optim, hidden_optim, cell_optim, action_optim]
+  else:
+    optims = [obs_optim, hidden_optim, action_optim]
+
+  optims = [action_optim]
 
   # run the finetuning portion of the QBN algorithm.
   for fine_iter in range(args.iterations):
@@ -373,17 +377,16 @@ ef run_experiment(args):
       while not done and traj_len < args.traj_len:
         with torch.no_grad():
           state        = torch.as_tensor(state).float()
-          norm_state   = state #policy.normalize_state(state, update=False)
 
         hidden        = policy.hidden[0]
-        policy.hidden = [hidden_qbn(hidden)]
+        #policy.hidden = [hidden_qbn(hidden)]
 
         if layertype == 'LSTMCell':
           cell        = policy.cells[0]
-          policy.cells = [cell_qbn(cell)]
+          #policy.cells = [cell_qbn(cell)]
 
         # Compute qbn values
-        qbn_action = action_qbn(policy(obs_qbn(norm_state)))
+        qbn_action = action_qbn(policy(obs_qbn(state)))
 
         with torch.no_grad():
           policy.hidden = [hidden]
@@ -399,24 +402,16 @@ ef run_experiment(args):
         losses += [step_loss]
     
     # clear our parameter gradients
-    if layertype == 'LSTMCell':
-      for opt in [obs_optim, hidden_optim, cell_optim, action_optim]:
-        opt.zero_grad()
-    else:
-      for opt in [obs_optim, hidden_optim, action_optim]:
-        opt.zero_grad()
+    for opt in optims
+      opt.zero_grad()
 
     # run the backwards pass
     losses = torch.stack(losses).mean()
     losses.backward()
 
     # update parameters
-    if layertype == 'LSTMCell':
-      for opt in [obs_optim, hidden_optim, cell_optim, action_optim]:
-        opt.step()
-    else:
-      for opt in [obs_optim, hidden_optim, action_optim]:
-        opt.step()
+    for opt in optims:
+      opt.step()
 
     # evaluate our QBN performance one-by-one
     print("\nEvaluating...")
