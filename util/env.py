@@ -59,13 +59,19 @@ def env_factory(path, verbose=False, **kwargs):
         legacy = False
       legacy = False
 
+      if 'impedance' in path:
+        impedance = True
+      else:
+        impedance = False
+
       if verbose:
         print("Created cassie env with arguments:")
         print("\tdynamics randomization: {}".format(dynamics_randomization))
         print("\tstate estimation:       {}".format(state_est))
         print("\tno delta:               {}".format(no_delta))
         print("\tclock based:            {}".format(clock))
-      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history, legacy=legacy)
+        print("\timpedance control:      {}".format(impedance))
+      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history, legacy=legacy, impedance=impedance)
 
     import gym
     spec = gym.envs.registry.spec(path)
