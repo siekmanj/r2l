@@ -47,6 +47,8 @@ class Net(nn.Module):
 
     self.env_name = None
 
+    self.calculate_norm = False
+
   def normalize_state(self, state, update=True):
     """
     Use Welford's algorithm to normalize a state, and optionally update the statistics
@@ -87,6 +89,9 @@ class FF_Base(Net):
     self.layers       = create_layers(nn.Linear, in_dim, layers)
     self.nonlinearity = nonlinearity
 
+  def get_latent_norm(self):
+    raise NotImplementedError
+
   def _base_forward(self, x):
     for idx, layer in enumerate(self.layers):
       x = self.nonlinearity(layer(x))
@@ -100,8 +105,8 @@ class LSTM_Base(Net):
     super(LSTM_Base, self).__init__()
     self.layers = create_layers(nn.LSTMCell, in_dim, layers)
 
-  def get_hidden_state(self):
-    return self.hidden, self.cells
+  def get_latent_norm(self):
+    return self.latent_norm
 
   def init_hidden_state(self, batch_size=1):
     self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.layers]
@@ -112,14 +117,25 @@ class LSTM_Base(Net):
 
     if dims == 3: # if we get a batch of trajectories
       self.init_hidden_state(batch_size=x.size(1))
+
+      if self.calculate_norm:
+        self.latent_norm = 0
+
       y = []
       for t, x_t in enumerate(x):
         for idx, layer in enumerate(self.layers):
           c, h = self.cells[idx], self.hidden[idx]
           self.hidden[idx], self.cells[idx] = layer(x_t, (h, c))
           x_t = self.hidden[idx]
+
+          if self.calculate_norm:
+            self.latent_norm += (torch.mean(torch.abs(x_t)) + torch.mean(torch.abs(self.cells[idx])))
+
         y.append(x_t)
       x = torch.stack([x_t for x_t in y])
+
+      if self.calculate_norm:
+        self.latent_norm /= len(x) * len(self.layers)
 
     else:
       if dims == 1: # if we get a single timestep (if not, assume we got a batch of single timesteps)
@@ -142,8 +158,8 @@ class GRU_Base(Net):
     super(GRU_Base, self).__init__()
     self.layers = create_layers(nn.GRUCell, in_dim, layers)
 
-  def get_hidden_state(self):
-    return self.hidden
+  def get_latent_norm(self):
+    return self.latent_norm
 
   def init_hidden_state(self, batch_size=1):
     self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.layers]
@@ -153,14 +169,25 @@ class GRU_Base(Net):
 
     if dims == 3: # if we get a batch of trajectories
       self.init_hidden_state(batch_size=x.size(1))
+
+      if self.calculate_norm:
+        self.latent_norm = 0
+
       y = []
       for t, x_t in enumerate(x):
         for idx, layer in enumerate(self.layers):
           h = self.hidden[idx]
           self.hidden[idx] = layer(x_t, h)
           x_t = self.hidden[idx]
+
+          if self.calculate_norm:
+            self.latent_norm += torch.mean(torch.abs(x_t))
+
         y.append(x_t)
       x = torch.stack([x_t for x_t in y])
+
+      if self.calculate_norm:
+        self.latent_norm /= len(x) * len(self.layers)
 
     else:
       if dims == 1: # if we get a single timestep (if not, assume we got a batch of single timesteps)
@@ -197,8 +224,8 @@ class QBN_GRU_Base(Net):
     self.memory_size        = m_size
     self.latent_output_size = latent
 
-  def get_hidden_state(self):
-    return self.hidden
+  def get_latent_norm(self):
+    raise NotImplementedError
 
   def init_hidden_state(self, batch_size=1):
     self.hidden = torch.zeros(batch_size, self.memory_size)

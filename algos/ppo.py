@@ -217,14 +217,14 @@ class PPO:
       else:
         self.recurrent = False
 
-      self.actor_optim = optim.Adam(self.actor.parameters(), lr=args.a_lr, eps=args.eps)
-      self.critic_optim = optim.Adam(self.critic.parameters(), lr=args.c_lr, eps=args.eps)
-      self.env_fn = env_fn
-      self.discount = args.discount
+      self.actor_optim   = optim.Adam(self.actor.parameters(), lr=args.a_lr, eps=args.eps)
+      self.critic_optim  = optim.Adam(self.critic.parameters(), lr=args.c_lr, eps=args.eps)
+      self.env_fn        = env_fn
+      self.discount      = args.discount
       self.entropy_coeff = args.entropy_coeff
-      self.grad_clip = args.grad_clip
-
-      self.env = env_fn()
+      self.grad_clip     = args.grad_clip
+      self.sparsity      = args.sparsity
+      self.env           = env_fn()
 
       if not ray.is_initialized():
         if args.redis is not None:
@@ -235,17 +235,31 @@ class PPO:
       self.workers = [PPO_Worker.remote(actor, critic, env_fn, args.discount) for _ in range(args.workers)]
 
     def update_policy(self, states, actions, returns, advantages, mask, mirror=False):
+
+      # get old action distribution and log probabilities
       with torch.no_grad():
-        old_pdf = self.old_actor.pdf(states)
+        old_pdf       = self.old_actor.pdf(states)
         old_log_probs = old_pdf.log_prob(actions).sum(-1, keepdim=True)
 
-      pdf = self.actor.pdf(states)
-      
+      # if we are using sparsity constraint, set the internal boolean for saving memory to true
+      if self.sparsity > 0:
+        self.actor.calculate_norm = True
+
+      # get new action distribution and log probabilities
+      pdf       = self.actor.pdf(states)
       log_probs = pdf.log_prob(actions).sum(-1, keepdim=True)
 
-      ratio = ((log_probs - old_log_probs)).exp()
-      cpi_loss = ratio * advantages * mask
-      clip_loss = ratio.clamp(0.8, 1.2) * advantages * mask
+      if self.sparsity > 0:
+        self.actor.calculate_norm = False
+        latent_norm = self.actor.get_latent_norm()
+      else:
+        latent_norm = torch.zeros(1)
+
+      sparsity_loss = self.sparsity * latent_norm
+
+      ratio      = ((log_probs - old_log_probs)).exp()
+      cpi_loss   = ratio * advantages * mask
+      clip_loss  = ratio.clamp(0.8, 1.2) * advantages * mask
       actor_loss = -torch.min(cpi_loss, clip_loss).mean()
 
       critic_loss = 0.5 * ((returns - self.critic(states)) * mask).pow(2).mean()
@@ -274,7 +288,7 @@ class PPO:
       self.actor_optim.zero_grad()
       self.critic_optim.zero_grad()
 
-      (actor_loss + entropy_penalty + mirror_loss).backward()
+      (actor_loss + entropy_penalty + mirror_loss + sparsity_loss).backward()
       critic_loss.backward()
 
       torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.grad_clip)
@@ -283,7 +297,7 @@ class PPO:
       self.critic_optim.step()
 
       with torch.no_grad():
-        return kl_divergence(pdf, old_pdf).mean().numpy(), ((actor_loss + entropy_penalty).item(), critic_loss.item(), mirror_loss.item())
+        return kl_divergence(pdf, old_pdf).mean().numpy(), ((actor_loss + entropy_penalty).item(), critic_loss.item(), mirror_loss.item(), latent_norm.item())
 
     def merge_buffers(self, buffers):
       memory = Buffer()
@@ -336,6 +350,7 @@ class PPO:
       a_loss = []
       c_loss = []
       m_loss = []
+      s_loss = []
       for epoch in range(epochs):
         for batch in memory.sample(batch_size=batch_size, recurrent=self.recurrent):
           states, actions, returns, advantages, mask = batch
@@ -345,6 +360,7 @@ class PPO:
           a_loss += [losses[0]]
           c_loss += [losses[1]]
           m_loss += [losses[2]]
+          s_loss += [losses[3]]
 
           if max(kls) > kl_thresh:
               done = True
@@ -359,7 +375,7 @@ class PPO:
 
       if verbose:
         print("\t{:3.2f}s to update policy.".format(time() - start))
-      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), np.mean(m_loss), len(memory)
+      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), np.mean(m_loss), np.mean(s_loss), len(memory)
 
 def run_experiment(args):
   torch.set_num_threads(1)
@@ -448,13 +464,17 @@ def run_experiment(args):
   timesteps = 0
   best_reward = None
   while timesteps < args.timesteps:
-    eval_reward, kl, a_loss, c_loss, m_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl, mirror=args.mirror)
+    eval_reward, kl, a_loss, c_loss, m_loss, s_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl, mirror=args.mirror)
 
     timesteps += steps
+    print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | ".format(itr, eval_reward, kl, timesteps), end='')
     if m_loss != 0:
-      print("iter {:4d} | return: {:5.2f} | mirror {:6.5f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, m_loss, kl, timesteps))
-    else:
-      print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))
+      print("mirror {:6.5f} | ".format(m_loss), end='')
+
+    if s_loss != 0:
+      print("sparsity {:6.5f} | ".format(s_loss), end='')
+
+    print("timesteps {:n}".format(timesteps))
 
     if best_reward is None or eval_reward > best_reward:
       print("\t(best policy so far! saving to {})".format(args.save_actor))
@@ -471,5 +491,6 @@ def run_experiment(args):
       logger.add_scalar(args.env + '/actor loss', a_loss, timesteps)
       logger.add_scalar(args.env + '/critic loss', c_loss, timesteps)
       logger.add_scalar(args.env + '/mirror loss', m_loss, timesteps)
+      logger.add_scalar(args.env + '/sparsity loss', s_loss, timesteps)
     itr += 1
   print("Finished ({} of {}).".format(timesteps, args.timesteps))
