@@ -185,13 +185,14 @@ class QBN_GRU_Base(Net):
 
     obs_bottleneck = 8
     m_bottleneck   = 8
-    m_size         = 32
+    m_size         = 16
     latent         = 16
+    obs_intermediate = int(abs(in_dim - obs_bottleneck)/2)
 
-    self.obs_qbn       = create_layers(nn.Linear, in_dim, (int(abs(in_dim - obs_bottleneck)/2), obs_bottleneck))
+    self.obs_qbn       = create_layers(nn.Linear, in_dim, (obs_intermediate, obs_intermediate, obs_bottleneck))
     self.memory        = nn.GRUCell(obs_bottleneck, m_size)
-    self.memory2qbn    = create_layers(nn.Linear, m_size, [latent, m_bottleneck])
-    self.qbn2memory    = create_layers(nn.Linear, m_bottleneck, [latent, m_size])
+    self.memory2qbn    = create_layers(nn.Linear, m_size, [latent, latent, m_bottleneck])
+    self.qbn2memory    = create_layers(nn.Linear, m_bottleneck, [latent, latent, m_size])
     self.action_latent = create_layers(nn.Linear, m_size, [latent])
     
     self.memory_size        = m_size
