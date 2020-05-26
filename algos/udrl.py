@@ -110,9 +110,7 @@ class UDRL_Worker:
           horizon    = 1 - torch.exp(-traj_len / 50)
           cmd_reward = torch.Tensor(cmd_reward)
 
-          state = torch.stack(horizon, cmd_reward, norm_state)
-          print(state.size())
-
+          state      = torch.stack(horizon, cmd_reward, norm_state)
           action     = behavioral_fn(state, False).numpy()
 
           next_state, reward, done, _ = self.env.step(action)
@@ -129,7 +127,8 @@ class UDRL_Worker:
       return memory
 
 class UDRL:
-  def __init__(self, behavior_fn, 
+  def __init__(self, behavior_fn):
+    pass
 
 def run_experiment(args):
   torch.set_num_threads(1)

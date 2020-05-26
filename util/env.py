@@ -103,7 +103,6 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
     print("Policy is a: {}".format(policy.__class__.__name__))
     reward_sum = 0
     env.dynamics_randomization = False
-    #env.dynamics_randomization = True
     total_t = 0
     episodes = 0
     while total_t < min_timesteps:
@@ -120,8 +119,10 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
 
-        env.speed = 0.5
+        env.speed = 0.0
         env.side_speed = 0.0
+        env.phase_add = 60
+        env.orient_add = 0
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
         if visualize:
@@ -143,8 +144,6 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
           if hasattr(env, 'dt'):
             while time.time() - start < env.dt:
               time.sleep(0.0005)
-              #print("dt: {}, rt: {}".format(env.dt, end - start))
-              #input()
 
       reward_sum += eval_reward
       if verbose:
