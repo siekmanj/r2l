@@ -20,7 +20,7 @@ def collect_data(actor, timesteps, max_traj_len, seed):
   torch.set_num_threads(1)
   np.random.seed(seed)
   policy = deepcopy(actor)
-  layertype = policy.actor_layers[0].__class__.__name__
+  layertype = policy.layers[0].__class__.__name__
 
   with torch.no_grad(): # no gradients necessary
     env = env_factory(policy.env_name)()
@@ -47,7 +47,7 @@ def collect_data(actor, timesteps, max_traj_len, seed):
           cell = actor.cells[0].view(-1)
 
         # append the information we care about to lists to be returned.
-        states.append(norm_state.numpy())
+        states.append(state.numpy())
         actions.append(action.numpy())
         hiddens.append(hidden.numpy())
         if layertype == 'LSTMCell':
@@ -74,7 +74,7 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
     env = env_factory(actor.env_name)()
     reward = 0
 
-    layertype = actor.actor_layers[0].__class__.__name__
+    layertype = actor.layers[0].__class__.__name__
     obs_states = {}
     hid_states = {}
     cel_states = {}
@@ -89,14 +89,13 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
       state = torch.as_tensor(env.reset())
       while not done and traj_len < max_traj_len:
         state        = torch.as_tensor(state).float()
-        norm_state   = state
         hidden_state = actor.hidden[0]
         if layertype == 'LSTMCell':
           cell_state   = actor.cells[0]
 
         if obs_qbn is not None:
-          norm_state   = obs_qbn(norm_state) # discretize state
-          disc_state = np.round(obs_qbn.encode(norm_state).numpy()).astype(int)
+          state   = obs_qbn(state) # discretize state
+          disc_state = np.round(obs_qbn.encode(state).numpy()).astype(int)
           key = ''.join(map(str, disc_state))
           if key not in obs_states:
             obs_states[key] = True
@@ -115,7 +114,7 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
           if key not in cel_states:
             cel_states[key] = True
 
-        action       = actor(norm_state) # run the policy to get an action
+        action       = actor(state) # run the policy to get an action
 
         if act_qbn is not None: # handle the action QBN
           action = act_qbn(action) # discretize action 
@@ -132,7 +131,7 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
     else:
       return reward, len(obs_states), len(hid_states), None, len(act_states)
   
-ef run_experiment(args):
+def run_experiment(args):
   """
   The entry point for the QBN insertion algorithm. This function is called by r2l.py,
   and passed an args dictionary which contains hyperparameters for running the experiment.
@@ -148,12 +147,12 @@ ef run_experiment(args):
 
   policy = torch.load(args.policy) # load policy to be discretized
 
-  layertype = policy.actor_layers[0].__class__.__name__ 
+  layertype = policy.layers[0].__class__.__name__ 
   if layertype != 'LSTMCell' and layertype != 'GRUCell': # ensure that the policy loaded is actually recurrent
     print("Cannot do QBN insertion on a non-recurrent policy.")
     raise NotImplementedError 
 
-  if len(policy.actor_layers) > 1: # ensure that the policy only has one hidden layer
+  if len(policy.layers) > 1: # ensure that the policy only has one hidden layer
     print("Cannot do QBN insertion on a policy with more than one hidden layer.")
     raise NotImplementedError
 
@@ -161,7 +160,7 @@ ef run_experiment(args):
   env_fn     = env_factory(policy.env_name)
   obs_dim    = env_fn().observation_space.shape[0]
   action_dim = env_fn().action_space.shape[0]
-  hidden_dim = policy.actor_layers[0].hidden_size
+  hidden_dim = policy.layers[0].hidden_size
 
   # parse QBN layer sizes from command line arg
   layers = [int(x) for x in args.layers.split(',')]
@@ -392,7 +391,7 @@ ef run_experiment(args):
           policy.hidden = [hidden]
           if layertype == 'LSTMCell':
             policy.cells  = [cell]
-          action       = policy(norm_state)
+          action       = policy(state)
 
         state, r, done, _ = env.step(action.numpy())
         reward += r
@@ -402,7 +401,7 @@ ef run_experiment(args):
         losses += [step_loss]
     
     # clear our parameter gradients
-    for opt in optims
+    for opt in optims:
       opt.zero_grad()
 
     # run the backwards pass
