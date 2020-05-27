@@ -11,17 +11,14 @@ from torch.nn.utils.rnn import pad_sequence
 
 class ReplayBuffer():
   def __init__(self, state_dim, action_dim, max_size):
-    self.max_size   = int(max_size)
-    self.state      = torch.zeros((self.max_size, state_dim))
-    self.next_state = torch.zeros((self.max_size, state_dim))
-    self.action     = torch.zeros((self.max_size, action_dim))
-    self.reward     = torch.zeros((self.max_size, 1))
-    self.not_done   = torch.zeros((self.max_size, 1))
-
-    self.trajectory_idx = [0]
-    self.trajectories = 0
-
-    self.size = 1
+    self.max_size     = int(max_size)
+    self.state        = torch.zeros((self.max_size, state_dim))
+    self.next_state   = torch.zeros((self.max_size, state_dim))
+    self.action       = torch.zeros((self.max_size, action_dim))
+    self.reward       = torch.zeros((self.max_size, 1))
+    self.not_done     = torch.zeros((self.max_size, 1))
+    self.traj     = [0]
+    self.size         = 1
 
   def push(self, state, action, next_state, reward, done):
     if self.size == self.max_size:
@@ -37,65 +34,45 @@ class ReplayBuffer():
     self.not_done[idx]   = 1 - done
 
     if done:
-      self.trajectory_idx.append(self.size)
-      self.trajectories += 1
+      self.traj.append(self.size)
 
     self.size = min(self.size+1, self.max_size)
 
-  def sample_trajectory(self, max_len):
-
-    traj_idx = np.random.randint(0, self.trajectories-1)
-    start_idx = self.trajectory_idx[traj_idx]
-    end_idx   = self.trajectory_idx[traj_idx+1]
-    #end_idx = start_idx + 1
-
-    #while self.not_done[end_idx] == 1 and end_idx - start_idx < max_len:
-    #  end_idx += 1
-    #end_idx += 1
-
-    traj_states = self.state[start_idx:end_idx]
-    next_states = self.next_state[start_idx:end_idx]
-    actions     = self.action[start_idx:end_idx]
-    rewards     = self.reward[start_idx:end_idx]
-    not_dones   = self.not_done[start_idx:end_idx]
-
-    # Return an entire episode
-    return traj_states, actions, next_states, rewards, not_dones, 1
-
-  def sample(self, batch_size, sample_trajectories=False, max_len=1000):
-    if sample_trajectories:
+  def sample(self, batch_size, recurrent=False):
+    if recurrent:
       # Collect raw trajectories from replay buffer
-      raw_traj = [self.sample_trajectory(max_len) for _ in range(batch_size)]
-      steps = sum([len(traj[0]) for traj in raw_traj])
+      traj_indices = np.random.randint(0, len(self.traj), size=batch_size)
 
       # Extract trajectory info into separate lists to be padded and batched
-      states      = [traj[0] for traj in raw_traj]
-      actions     = [traj[1] for traj in raw_traj]
-      next_states = [traj[2] for traj in raw_traj]
-      rewards     = [traj[3] for traj in raw_traj]
-      not_dones   = [traj[4] for traj in raw_traj]
+      #states      = [traj[0] for traj in raw_traj]
+      #actions     = [traj[1] for traj in raw_traj]
+      #next_states = [traj[2] for traj in raw_traj]
+      #rewards     = [traj[3] for traj in raw_traj]
+      #not_dones   = [traj[4] for traj in raw_traj]
+      states       = [self.states  [self.traj[i]:self.traj[i+1]] for i in traj_indices][:-1]
+      actions      = [self.actions [self.traj[i]:self.traj[i+1]] for i in traj_indices][:-1]
+      rewards      = [self.rewards [self.traj[i]:self.traj[i+1]] for i in traj_indices][:-1]
+      not_dones    = [self.not_done[self.traj[i]:self.traj[i+1]] for i in traj_indices][:-1]
+      next_states  = [self.states  [self.traj[i]:self.traj[i+1]] for i in traj_indices][1:]
 
       # Get the trajectory mask for the critic
       traj_mask = [torch.ones_like(reward) for reward in rewards]
 
       # Pad all trajectories to be the same length, shape is (traj_len x batch_size x dim)
-      states      = pad_sequence(states, batch_first=False)
-      actions     = pad_sequence(actions, batch_first=False)
+      states      = pad_sequence(states,      batch_first=False)
+      actions     = pad_sequence(actions,     batch_first=False)
       next_states = pad_sequence(next_states, batch_first=False)
-      rewards     = pad_sequence(rewards, batch_first=False)
-      not_dones   = pad_sequence(not_dones, batch_first=False)
-      traj_mask   = pad_sequence(traj_mask, batch_first=False)
+      rewards     = pad_sequence(rewards,     batch_first=False)
+      not_dones   = pad_sequence(not_dones,   batch_first=False)
+      traj_mask   = pad_sequence(traj_mask,   batch_first=False)
 
       return states, actions, next_states, rewards, not_dones, steps, traj_mask
-
     else:
       idx = np.random.randint(0, self.size, size=batch_size)
       return self.state[idx], self.action[idx], self.next_state[idx], self.reward[idx], self.not_done[idx], batch_size, 1
 
-def collect_experience(policy, env, replay_buffer, initial_state, steps, noise=0.2, max_len=1000):
+def collect_experience(policy, env, replay_buffer, state, steps, noise=0.2, max_len=1000):
   with torch.no_grad():
-    #state = policy.normalize_state(torch.Tensor(initial_state))
-
     if noise is None:
       a = policy.forward(state, deterministic=False).numpy()
     else:
@@ -109,7 +86,7 @@ def collect_experience(policy, env, replay_buffer, initial_state, steps, noise=0
       if hasattr(policy, 'init_hidden_state'):
         policy.init_hidden_state()
 
-    replay_buffer.push(initial_state, a, state_t1.astype(np.float32), r, done)
+    replay_buffer.push(state, a, state_t1.astype(np.float32), r, done)
 
     return state_t1, r, done
 
@@ -135,10 +112,7 @@ def run_experiment(args):
 
   layers = [int(x) for x in args.layers.split(',')]
 
-  raise NotImplementedError
-
-  if args.recurrent:
-    print('Recurrent ', end='')
+  if args.arch == 'lstm':
     q1 = LSTM_Q(obs_space, act_space, env_name=args.env, layers=layers)
     q2 = LSTM_Q(obs_space, act_space, env_name=args.env, layers=layers)
 
@@ -146,7 +120,15 @@ def run_experiment(args):
       actor = LSTM_Stochastic_Actor(obs_space, act_space, env_name=args.env, bounded=True, layers=layers)
     else:
       actor = LSTM_Actor(obs_space, act_space, env_name=args.env, layers=layers)
-  else:
+  elif args.arch == 'gru':
+    q1 = GRU_Q(obs_space, act_space, env_name=args.env, layers=layers)
+    q2 = GRU_Q(obs_space, act_space, env_name=args.env, layers=layers)
+
+    if args.algo == 'sac':
+      actor = GRU_Stochastic_Actor(obs_space, act_space, env_name=args.env, bounded=True, layers=layers)
+    else:
+      actor = GRU_Actor(obs_space, act_space, env_name=args.env, layers=layers)
+  elif args.arch == 'ff':
     q1 = FF_Q(obs_space, act_space, env_name=args.env, layers=layers)
     q2 = FF_Q(obs_space, act_space, env_name=args.env, layers=layers)
 
@@ -193,7 +175,6 @@ def run_experiment(args):
   update_steps = 0
   best_reward = None
 
-  #eval_policy(algo.actor, min_timesteps=args.prenormalize_steps, max_traj_len=args.max_traj_len, visualize=False
   train_normalizer(algo.actor, args.prenormalize_steps, noise=algo.expl_noise)
 
   # Fill replay buffer, update policy until n timesteps have passed

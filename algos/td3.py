@@ -7,7 +7,7 @@ import random
 
 class TD3():
   def __init__(self, actor, q1, q2, args):
-    self.recurrent = args.arch.lower() == 'lstm' or args.recurrent.lower() == 'gru'
+    self.recurrent = args.arch.lower() == 'lstm' or args.arch.lower() == 'gru'
 
     self.actor  = actor
     self.q1 = q1
@@ -45,12 +45,9 @@ class TD3():
   def update_policy(self, replay_buffer, batch_size=256, traj_len=1000, grad_clip=None, noise_clip=0.2):
     self.n += 1
 
-    states, actions, next_states, rewards, not_dones, steps, mask = replay_buffer.sample(batch_size, sample_trajectories=self.recurrent, max_len=traj_len)
+    states, actions, next_states, rewards, not_dones, steps, mask = replay_buffer.sample(batch_size, recurrent=self.recurrent)
 
     with torch.no_grad():
-      #states      = self.actor.normalize_state(states, update=False)
-      #next_states = self.actor.normalize_state(next_states, update=False)
-
       noise        = (torch.randn_like(actions) * self.policy_noise).clamp(-noise_clip, noise_clip)
       next_actions = (self.target_actor(next_states) + noise)
 

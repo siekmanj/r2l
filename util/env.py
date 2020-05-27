@@ -93,10 +93,9 @@ def env_factory(path, verbose=False, **kwargs):
 
 def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, env=None, verbose=True):
   env_name = env
-  legacy = 'legacy' if not (hasattr(policy, 'legacy') and policy.legacy == False) else ''
   with torch.no_grad():
     if env_name is None:
-      env = env_factory(policy.env_name + legacy)()
+      env = env_factory(policy.env_name)()
     else:
       env = env_factory(env_name)()
 
@@ -105,6 +104,10 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
     env.dynamics_randomization = False
     total_t = 0
     episodes = 0
+
+    obs_states = {}
+    mem_states = {}
+
     while total_t < min_timesteps:
       state = env.reset()
       done = False
@@ -132,7 +135,10 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         total_t += 1
 
         if hasattr(policy, 'get_quantized_states'):
-          print(policy.get_quantized_states())
+          obs, mem = policy.get_quantized_states()
+          obs_states[obs] = True
+          mem_states[mem] = True
+          print(policy.get_quantized_states(), len(obs_states), len(mem_states))
 
         if visualize:
           if hasattr(env, 'simrate'):

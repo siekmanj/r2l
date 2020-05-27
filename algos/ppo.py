@@ -83,19 +83,19 @@ class Buffer:
       sampler = BatchSampler(random_indices, batch_size, drop_last=True)
 
       for traj_indices in sampler:
-        states     = [self.states[self.traj_idx[i]:self.traj_idx[i+1]]          for i in traj_indices]
-        actions    = [self.actions[self.traj_idx[i]:self.traj_idx[i+1]]         for i in traj_indices]
-        returns    = [self.returns[self.traj_idx[i]:self.traj_idx[i+1]]         for i in traj_indices]
-        advantages = [self.advantages[self.traj_idx[i]:self.traj_idx[i+1]]      for i in traj_indices]
+        states     = [self.states[self.traj_idx[i]:self.traj_idx[i+1]]     for i in traj_indices]
+        actions    = [self.actions[self.traj_idx[i]:self.traj_idx[i+1]]    for i in traj_indices]
+        returns    = [self.returns[self.traj_idx[i]:self.traj_idx[i+1]]    for i in traj_indices]
+        advantages = [self.advantages[self.traj_idx[i]:self.traj_idx[i+1]] for i in traj_indices]
         traj_mask  = [torch.ones_like(r) for r in returns]
         
         lens = [self.traj_idx[i+1] - self.traj_idx[i] for i in traj_indices[:-1]]
 
-        states     = pad_sequence(states, batch_first=False)
-        actions    = pad_sequence(actions, batch_first=False)
-        returns    = pad_sequence(returns, batch_first=False)
+        states     = pad_sequence(states,     batch_first=False)
+        actions    = pad_sequence(actions,    batch_first=False)
+        returns    = pad_sequence(returns,    batch_first=False)
         advantages = pad_sequence(advantages, batch_first=False)
-        traj_mask  = pad_sequence(traj_mask, batch_first=False)
+        traj_mask  = pad_sequence(traj_mask,  batch_first=False)
 
         yield states, actions, returns, advantages, traj_mask
 
