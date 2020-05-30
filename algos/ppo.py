@@ -224,6 +224,7 @@ class PPO:
       self.entropy_coeff = args.entropy_coeff
       self.grad_clip     = args.grad_clip
       self.sparsity      = args.sparsity
+      self.mirror        = args.mirror
       self.env           = env_fn()
 
       if not ray.is_initialized():
@@ -266,8 +267,7 @@ class PPO:
 
       entropy_penalty = -(self.entropy_coeff * pdf.entropy() * mask).mean()
 
-      mirror_loss = torch.zeros(1)
-      if mirror:
+      if self.mirror > 0:
         with torch.no_grad():
           state_fn  = self.env.mirror_state
           action_fn = self.env.mirror_action
@@ -283,7 +283,9 @@ class PPO:
           mirrored_actions = torch.from_numpy(action_fn(action_squished)).view(actions.size())
 
         unmirrored_actions   = self.actor(states)
-        mirror_loss = 4 * (unmirrored_actions - mirrored_actions).pow(2).mean()
+        mirror_loss = self.mirror * 4 * (unmirrored_actions - mirrored_actions).pow(2).mean()
+      else:
+        mirror_loss = torch.zeros(1)
 
       self.actor_optim.zero_grad()
       self.critic_optim.zero_grad()
