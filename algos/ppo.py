@@ -63,24 +63,24 @@ class Buffer:
     self.ep_lens    += [len(rewards)]
 
   def _finish_buffer(self, mirror):
-    self.states  = torch.Tensor(self.states)
-    self.actions = torch.Tensor(self.actions)
-    self.rewards = torch.Tensor(self.rewards)
-    self.returns = torch.Tensor(self.returns)
-    self.values  = torch.Tensor(self.values)
+    with torch.no_grad():
+      self.states  = torch.Tensor(self.states)
+      self.actions = torch.Tensor(self.actions)
+      self.rewards = torch.Tensor(self.rewards)
+      self.returns = torch.Tensor(self.returns)
+      self.values  = torch.Tensor(self.values)
 
-    if mirror is not None:
-      start = time()
-      squished           = np.prod(list(self.states.size())[:-1]) 
-      state_dim          = self.states.size()[-1]
-      state_squished     = self.states.view(squished, state_dim).numpy()
-      self.mirror_states = torch.from_numpy(mirror(state_squished)).view(self.states.size())
-      print("{:4.3f} to calculate mirror states".format(time() - start))
+      if mirror is not None:
+        start = time()
+        squished           = np.prod(list(self.states.size())[:-1]) 
+        state_dim          = self.states.size()[-1]
+        state_squished     = self.states.view(squished, state_dim).numpy()
+        self.mirror_states = torch.from_numpy(mirror(state_squished)).view(self.states.size())
 
-    a = self.returns - self.values
-    a = (a - a.mean()) / (a.std() + 1e-4)
-    self.advantages = a
-    self.buffer_ready = True
+      a = self.returns - self.values
+      a = (a - a.mean()) / (a.std() + 1e-4)
+      self.advantages = a
+      self.buffer_ready = True
 
   def sample(self, batch_size=64, recurrent=False, mirror=None):
     if not self.buffer_ready:
@@ -96,8 +96,6 @@ class Buffer:
         returns    = [self.returns[self.traj_idx[i]:self.traj_idx[i+1]]    for i in traj_indices]
         advantages = [self.advantages[self.traj_idx[i]:self.traj_idx[i+1]] for i in traj_indices]
         traj_mask  = [torch.ones_like(r) for r in returns]
-
-        lens = [self.traj_idx[i+1] - self.traj_idx[i] for i in traj_indices[:-1]]
 
         states     = pad_sequence(states,     batch_first=False)
         actions    = pad_sequence(actions,    batch_first=False)
@@ -122,7 +120,11 @@ class Buffer:
         returns    = self.returns[idxs]
         advantages = self.advantages[idxs]
 
-        yield states, actions, returns, advantages, 1
+        if mirror is None:
+          yield states, actions, returns, advantages, 1
+        else:
+          mirror_states = self.mirror_states[idxs]
+          yield states, mirror_states, actions, returns, advantages, 1
 
 
 def merge_buffers(buffers):
@@ -148,10 +150,11 @@ def merge_buffers(buffers):
 class PPO_Worker:
   def __init__(self, actor, critic, env_fn, gamma):
     torch.set_num_threads(1)
-    self.gamma = gamma
-    self.actor = deepcopy(actor)
+    self.gamma  = gamma
+    self.actor  = deepcopy(actor)
     self.critic = deepcopy(critic)
-    self.env = env_fn()
+    self.env    = env_fn()
+
     if hasattr(self.env, 'dynamics_randomization'):
       self.dynamics_randomization = self.env.dynamics_randomization
     else:
@@ -368,7 +371,9 @@ class PPO:
       m_loss = []
       s_loss = []
       for epoch in range(epochs):
+        epoch_start = time()
         for batch in memory.sample(batch_size=batch_size, recurrent=self.recurrent, mirror=state_fn):
+
           if state_fn is not None:
             states, mirror_states, actions, returns, advantages, mask = batch
           else:
@@ -388,7 +393,7 @@ class PPO:
               break
 
         if verbose:
-          print("\t\tepoch {:2d} kl {:6.5f}, actor loss {:6.3f}, critic loss {:6.3f}".format(epoch+1, np.mean(kls), np.mean(a_loss), np.mean(c_loss)))
+          print("\t\tepoch {:2d} in {:3.2f}s, kl {:6.5f}, actor loss {:6.3f}, critic loss {:6.3f}".format(epoch+1, time() - epoch_start, np.mean(kls), np.mean(a_loss), np.mean(c_loss)))
 
         if done:
           break
