@@ -20,7 +20,7 @@ def collect_data(actor, timesteps, max_traj_len, seed):
   torch.set_num_threads(1)
   np.random.seed(seed)
   policy = deepcopy(actor)
-  layertype = policy.actor_layers[0].__class__.__name__
+  layertype = policy.layers[0].__class__.__name__
 
   with torch.no_grad(): # no gradients necessary
     env = env_factory(policy.env_name)()
@@ -40,15 +40,14 @@ def collect_data(actor, timesteps, max_traj_len, seed):
 
       while not done and traj_len < max_traj_len:
         state        = torch.as_tensor(state).float()
-        norm_state   = actor.normalize_state(state, update=False)
-        action       = actor(norm_state)
+        action       = actor(state)
         hidden = actor.hidden[0].view(-1)
 
         if layertype == 'LSTMCell':
           cell = actor.cells[0].view(-1)
 
         # append the information we care about to lists to be returned.
-        states.append(norm_state.numpy())
+        states.append(state.numpy())
         actions.append(action.numpy())
         hiddens.append(hidden.numpy())
         if layertype == 'LSTMCell':
@@ -75,7 +74,7 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
     env = env_factory(actor.env_name)()
     reward = 0
 
-    layertype = actor.actor_layers[0].__class__.__name__
+    layertype = actor.layers[0].__class__.__name__
     obs_states = {}
     hid_states = {}
     cel_states = {}
@@ -90,15 +89,13 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
       state = torch.as_tensor(env.reset())
       while not done and traj_len < max_traj_len:
         state        = torch.as_tensor(state).float()
-        norm_state   = actor.normalize_state(state, update=False)
-
         hidden_state = actor.hidden[0]
-        if layertype == 'LSTMCell': # if we aren't using a GRU network
+        if layertype == 'LSTMCell':
           cell_state   = actor.cells[0]
 
-        if obs_qbn is not None: # handle the state QBN
-          norm_state   = obs_qbn(norm_state) # discretize state
-          disc_state = np.round(obs_qbn.encode(norm_state).numpy()).astype(int)
+        if obs_qbn is not None:
+          state   = obs_qbn(state) # discretize state
+          disc_state = np.round(obs_qbn.encode(state).numpy()).astype(int)
           key = ''.join(map(str, disc_state))
           if key not in obs_states:
             obs_states[key] = True
@@ -117,7 +114,7 @@ def evaluate(actor, obs_qbn=None, hid_qbn=None, cel_qbn=None, act_qbn=None, epis
           if key not in cel_states:
             cel_states[key] = True
 
-        action       = actor(norm_state) # run the policy to get an action
+        action       = actor(state) # run the policy to get an action
 
         if act_qbn is not None: # handle the action QBN
           action = act_qbn(action) # discretize action 
@@ -150,12 +147,12 @@ def run_experiment(args):
 
   policy = torch.load(args.policy) # load policy to be discretized
 
-  layertype = policy.actor_layers[0].__class__.__name__ 
+  layertype = policy.layers[0].__class__.__name__ 
   if layertype != 'LSTMCell' and layertype != 'GRUCell': # ensure that the policy loaded is actually recurrent
     print("Cannot do QBN insertion on a non-recurrent policy.")
     raise NotImplementedError 
 
-  if len(policy.actor_layers) > 1: # ensure that the policy only has one hidden layer
+  if len(policy.layers) > 1: # ensure that the policy only has one hidden layer
     print("Cannot do QBN insertion on a policy with more than one hidden layer.")
     raise NotImplementedError
 
@@ -163,7 +160,7 @@ def run_experiment(args):
   env_fn     = env_factory(policy.env_name)
   obs_dim    = env_fn().observation_space.shape[0]
   action_dim = env_fn().action_space.shape[0]
-  hidden_dim = policy.actor_layers[0].hidden_size
+  hidden_dim = policy.layers[0].hidden_size
 
   # parse QBN layer sizes from command line arg
   layers = [int(x) for x in args.layers.split(',')]
@@ -357,6 +354,11 @@ def run_experiment(args):
   hidden_optim = optim.Adam(hidden_qbn.parameters(), lr=args.lr, eps=1e-6)
   if layertype == 'LSTMCell':
     cell_optim   = optim.Adam(cell_qbn.parameters(), lr=args.lr, eps=1e-6)
+    optims = [obs_optim, hidden_optim, cell_optim, action_optim]
+  else:
+    optims = [obs_optim, hidden_optim, action_optim]
+
+  optims = [action_optim]
 
   # run the finetuning portion of the QBN algorithm.
   for fine_iter in range(args.iterations):
@@ -374,23 +376,22 @@ def run_experiment(args):
       while not done and traj_len < args.traj_len:
         with torch.no_grad():
           state        = torch.as_tensor(state).float()
-          norm_state   = policy.normalize_state(state, update=False)
 
         hidden        = policy.hidden[0]
-        policy.hidden = [hidden_qbn(hidden)]
+        #policy.hidden = [hidden_qbn(hidden)]
 
         if layertype == 'LSTMCell':
           cell        = policy.cells[0]
-          policy.cells = [cell_qbn(cell)]
+          #policy.cells = [cell_qbn(cell)]
 
         # Compute qbn values
-        qbn_action = action_qbn(policy(obs_qbn(norm_state)))
+        qbn_action = action_qbn(policy(obs_qbn(state)))
 
         with torch.no_grad():
           policy.hidden = [hidden]
           if layertype == 'LSTMCell':
             policy.cells  = [cell]
-          action       = policy(norm_state)
+          action       = policy(state)
 
         state, r, done, _ = env.step(action.numpy())
         reward += r
@@ -400,24 +401,16 @@ def run_experiment(args):
         losses += [step_loss]
     
     # clear our parameter gradients
-    if layertype == 'LSTMCell':
-      for opt in [obs_optim, hidden_optim, cell_optim, action_optim]:
-        opt.zero_grad()
-    else:
-      for opt in [obs_optim, hidden_optim, action_optim]:
-        opt.zero_grad()
+    for opt in optims:
+      opt.zero_grad()
 
     # run the backwards pass
     losses = torch.stack(losses).mean()
     losses.backward()
 
     # update parameters
-    if layertype == 'LSTMCell':
-      for opt in [obs_optim, hidden_optim, cell_optim, action_optim]:
-        opt.step()
-    else:
-      for opt in [obs_optim, hidden_optim, action_optim]:
-        opt.step()
+    for opt in optims:
+      opt.step()
 
     # evaluate our QBN performance one-by-one
     print("\nEvaluating...")

@@ -59,13 +59,19 @@ def env_factory(path, verbose=False, **kwargs):
         legacy = False
       legacy = False
 
+      if 'impedance' in path:
+        impedance = True
+      else:
+        impedance = False
+
       if verbose:
         print("Created cassie env with arguments:")
         print("\tdynamics randomization: {}".format(dynamics_randomization))
         print("\tstate estimation:       {}".format(state_est))
         print("\tno delta:               {}".format(no_delta))
         print("\tclock based:            {}".format(clock))
-      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history, legacy=legacy)
+        print("\timpedance control:      {}".format(impedance))
+      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history, legacy=legacy, impedance=impedance)
 
     import gym
     spec = gym.envs.registry.spec(path)
@@ -87,19 +93,21 @@ def env_factory(path, verbose=False, **kwargs):
 
 def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, env=None, verbose=True):
   env_name = env
-  legacy = 'legacy' if not (hasattr(policy, 'legacy') and policy.legacy == False) else ''
   with torch.no_grad():
     if env_name is None:
-      env = env_factory(policy.env_name + legacy)()
+      env = env_factory(policy.env_name)()
     else:
       env = env_factory(env_name)()
 
     print("Policy is a: {}".format(policy.__class__.__name__))
     reward_sum = 0
     env.dynamics_randomization = False
-    #env.dynamics_randomization = True
     total_t = 0
     episodes = 0
+
+    obs_states = {}
+    mem_states = {}
+
     while total_t < min_timesteps:
       state = env.reset()
       done = False
@@ -114,9 +122,10 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
 
-        env.speed = 0.5
+        env.speed = 0.0
         env.side_speed = 0.0
-        state = policy.normalize_state(state, update=False)
+        env.phase_add = 60
+        env.orient_add = 0
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
         if visualize:
@@ -124,6 +133,12 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         eval_reward += reward
         timesteps += 1
         total_t += 1
+
+        if hasattr(policy, 'get_quantized_states'):
+          obs, mem = policy.get_quantized_states()
+          obs_states[obs] = True
+          mem_states[mem] = True
+          print(policy.get_quantized_states(), len(obs_states), len(mem_states))
 
         if visualize:
           if hasattr(env, 'simrate'):
@@ -135,8 +150,6 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
           if hasattr(env, 'dt'):
             while time.time() - start < env.dt:
               time.sleep(0.0005)
-              #print("dt: {}, rt: {}".format(env.dt, end - start))
-              #input()
 
       reward_sum += eval_reward
       if verbose:
@@ -158,11 +171,10 @@ def train_normalizer(policy, min_timesteps, max_traj_len=1000, noise=0.5):
         policy.init_hidden_state()
 
       while not done and timesteps < max_traj_len:
-        state = policy.normalize_state(state, update=True)
         if noise is None:
-          action = policy.forward(state, deterministic=False).numpy()
+          action = policy.forward(state, update_norm=True, deterministic=False).numpy()
         else:
-          action = policy.forward(state).numpy() + np.random.normal(0, noise, size=policy.action_dim)
+          action = policy.forward(state, update_norm=True).numpy() + np.random.normal(0, noise, size=policy.action_dim)
         state, _, done, _ = env.step(action)
         timesteps += 1
         total_t += 1

@@ -62,42 +62,53 @@ class Buffer:
     self.ep_returns += [np.sum(rewards)]
     self.ep_lens    += [len(rewards)]
 
-  def _finish_buffer(self):
-    self.states  = torch.Tensor(self.states)
-    self.actions = torch.Tensor(self.actions)
-    self.rewards = torch.Tensor(self.rewards)
-    self.returns = torch.Tensor(self.returns)
-    self.values  = torch.Tensor(self.values)
+  def _finish_buffer(self, mirror):
+    with torch.no_grad():
+      self.states  = torch.Tensor(self.states)
+      self.actions = torch.Tensor(self.actions)
+      self.rewards = torch.Tensor(self.rewards)
+      self.returns = torch.Tensor(self.returns)
+      self.values  = torch.Tensor(self.values)
 
-    a = self.returns - self.values
-    a = (a - a.mean()) / (a.std() + 1e-4)
-    self.advantages = a
-    self.buffer_ready = True
+      if mirror is not None:
+        start = time()
+        squished           = np.prod(list(self.states.size())[:-1]) 
+        state_dim          = self.states.size()[-1]
+        state_squished     = self.states.view(squished, state_dim).numpy()
+        self.mirror_states = torch.from_numpy(mirror(state_squished)).view(self.states.size())
 
-  def sample(self, batch_size=64, recurrent=False):
+      a = self.returns - self.values
+      a = (a - a.mean()) / (a.std() + 1e-4)
+      self.advantages = a
+      self.buffer_ready = True
+
+  def sample(self, batch_size=64, recurrent=False, mirror=None):
     if not self.buffer_ready:
-      self._finish_buffer()
+      self._finish_buffer(mirror)
 
     if recurrent:
       random_indices = SubsetRandomSampler(range(len(self.traj_idx)-1))
       sampler = BatchSampler(random_indices, batch_size, drop_last=True)
 
       for traj_indices in sampler:
-        states     = [self.states[self.traj_idx[i]:self.traj_idx[i+1]]          for i in traj_indices]
-        actions    = [self.actions[self.traj_idx[i]:self.traj_idx[i+1]]         for i in traj_indices]
-        returns    = [self.returns[self.traj_idx[i]:self.traj_idx[i+1]]         for i in traj_indices]
-        advantages = [self.advantages[self.traj_idx[i]:self.traj_idx[i+1]]      for i in traj_indices]
+        states     = [self.states[self.traj_idx[i]:self.traj_idx[i+1]]     for i in traj_indices]
+        actions    = [self.actions[self.traj_idx[i]:self.traj_idx[i+1]]    for i in traj_indices]
+        returns    = [self.returns[self.traj_idx[i]:self.traj_idx[i+1]]    for i in traj_indices]
+        advantages = [self.advantages[self.traj_idx[i]:self.traj_idx[i+1]] for i in traj_indices]
         traj_mask  = [torch.ones_like(r) for r in returns]
-        
-        lens = [self.traj_idx[i+1] - self.traj_idx[i] for i in traj_indices[:-1]]
 
-        states     = pad_sequence(states, batch_first=False)
-        actions    = pad_sequence(actions, batch_first=False)
-        returns    = pad_sequence(returns, batch_first=False)
+        states     = pad_sequence(states,     batch_first=False)
+        actions    = pad_sequence(actions,    batch_first=False)
+        returns    = pad_sequence(returns,    batch_first=False)
         advantages = pad_sequence(advantages, batch_first=False)
-        traj_mask  = pad_sequence(traj_mask, batch_first=False)
+        traj_mask  = pad_sequence(traj_mask,  batch_first=False)
 
-        yield states, actions, returns, advantages, traj_mask
+        if mirror is None:
+          yield states, actions, returns, advantages, traj_mask
+        else:
+          mirror_states = [self.mirror_states[self.traj_idx[i]:self.traj_idx[i+1]] for i in traj_indices]
+          mirror_states = pad_sequence(mirror_states, batch_first=False)
+          yield states, mirror_states, actions, returns, advantages, traj_mask
 
     else:
       random_indices = SubsetRandomSampler(range(self.size))
@@ -109,16 +120,41 @@ class Buffer:
         returns    = self.returns[idxs]
         advantages = self.advantages[idxs]
 
-        yield states, actions, returns, advantages, 1
+        if mirror is None:
+          yield states, actions, returns, advantages, 1
+        else:
+          mirror_states = self.mirror_states[idxs]
+          yield states, mirror_states, actions, returns, advantages, 1
+
+
+def merge_buffers(buffers):
+  memory = Buffer()
+
+  for b in buffers:
+    offset = len(memory)
+
+    memory.states  += b.states
+    memory.actions += b.actions
+    memory.rewards += b.rewards
+    memory.values  += b.values
+    memory.returns += b.returns
+
+    memory.ep_returns += b.ep_returns
+    memory.ep_lens    += b.ep_lens
+
+    memory.traj_idx += [offset + i for i in b.traj_idx[1:]]
+    memory.size     += b.size
+  return memory
 
 @ray.remote
 class PPO_Worker:
   def __init__(self, actor, critic, env_fn, gamma):
     torch.set_num_threads(1)
-    self.gamma = gamma
-    self.actor = deepcopy(actor)
+    self.gamma  = gamma
+    self.actor  = deepcopy(actor)
     self.critic = deepcopy(critic)
-    self.env = env_fn()
+    self.env    = env_fn()
+
     if hasattr(self.env, 'dynamics_randomization'):
       self.dynamics_randomization = self.env.dynamics_randomization
     else:
@@ -133,6 +169,7 @@ class PPO_Worker:
 
     if input_norm is not None:
       self.actor.welford_state_mean, self.actor.welford_state_mean_diff, self.actor.welford_state_n = input_norm
+      self.critic.copy_normalizer_stats(self.actor)
 
   def collect_experience(self, max_traj_len, min_steps):
     with torch.no_grad():
@@ -159,9 +196,8 @@ class PPO_Worker:
 
         while not done and traj_len < max_traj_len:
             state = torch.Tensor(state)
-            norm_state = actor.normalize_state(state, update=False)
-            action = actor(norm_state, False)
-            value = critic(norm_state)
+            action = actor(state, deterministic=False)
+            value = critic(state)
 
             next_state, reward, done, _ = self.env.step(action.numpy())
 
@@ -194,7 +230,6 @@ class PPO_Worker:
           self.actor.init_hidden_state()
 
         while not done and traj_len < max_traj_len:
-          state = self.actor.normalize_state(state, update=False)
           action = self.actor(state, deterministic=True)
 
           next_state, reward, done, _ = self.env.step(action.numpy())
@@ -218,14 +253,15 @@ class PPO:
       else:
         self.recurrent = False
 
-      self.actor_optim = optim.Adam(self.actor.parameters(), lr=args.a_lr, eps=args.eps)
-      self.critic_optim = optim.Adam(self.critic.parameters(), lr=args.c_lr, eps=args.eps)
-      self.env_fn = env_fn
-      self.discount = args.discount
+      self.actor_optim   = optim.Adam(self.actor.parameters(), lr=args.a_lr, eps=args.eps)
+      self.critic_optim  = optim.Adam(self.critic.parameters(), lr=args.c_lr, eps=args.eps)
+      self.env_fn        = env_fn
+      self.discount      = args.discount
       self.entropy_coeff = args.entropy_coeff
-      self.grad_clip = args.grad_clip
-
-      self.env = env_fn()
+      self.grad_clip     = args.grad_clip
+      self.sparsity      = args.sparsity
+      self.mirror        = args.mirror
+      self.env           = env_fn()
 
       if not ray.is_initialized():
         if args.redis is not None:
@@ -235,49 +271,57 @@ class PPO:
 
       self.workers = [PPO_Worker.remote(actor, critic, env_fn, args.discount) for _ in range(args.workers)]
 
-    def update_policy(self, states, actions, returns, advantages, mask, mirror=False):
+    def update_policy(self, states, actions, returns, advantages, mask, mirror_states=None):
+
+      # get old action distribution and log probabilities
       with torch.no_grad():
-        norm_states = self.actor.normalize_state(states, update=False)
-        old_pdf = self.old_actor.pdf(norm_states)
+        old_pdf       = self.old_actor.pdf(states)
         old_log_probs = old_pdf.log_prob(actions).sum(-1, keepdim=True)
 
-      pdf = self.actor.pdf(norm_states)
-      
+      # if we are using sparsity constraint, set the internal boolean for saving memory to true
+      if self.sparsity > 0:
+        self.actor.calculate_norm = True
+
+      # get new action distribution and log probabilities
+      pdf       = self.actor.pdf(states)
       log_probs = pdf.log_prob(actions).sum(-1, keepdim=True)
 
-      ratio = ((log_probs - old_log_probs)).exp()
-      cpi_loss = ratio * advantages * mask
-      clip_loss = ratio.clamp(0.8, 1.2) * advantages * mask
+      if self.sparsity > 0:
+        self.actor.calculate_norm = False
+        latent_norm = self.actor.get_latent_norm()
+      else:
+        latent_norm = torch.zeros(1)
+
+      sparsity_loss = self.sparsity * latent_norm
+
+      ratio      = ((log_probs - old_log_probs)).exp()
+      cpi_loss   = ratio * advantages * mask
+      clip_loss  = ratio.clamp(0.8, 1.2) * advantages * mask
       actor_loss = -torch.min(cpi_loss, clip_loss).mean()
 
-      critic_loss = 0.5 * ((returns - self.critic(norm_states)) * mask).pow(2).mean()
+      critic_loss = 0.5 * ((returns - self.critic(states)) * mask).pow(2).mean()
 
       entropy_penalty = -(self.entropy_coeff * pdf.entropy() * mask).mean()
 
-      mirror_loss = torch.zeros(1)
-      if mirror:
+      if mirror_states is not None:
+        mirror_time = time()
         with torch.no_grad():
-          state_fn  = self.env.mirror_state
-          action_fn = self.env.mirror_action
-
-          squished       = np.prod(list(states.size())[:-1]) 
-          state_dim      = states.size()[-1]
-          action_dim     = actions.size()[-1]
-          state_squished = states.view(squished, state_dim).numpy() # squeeze states tensor into [seq * batch, statedim]
-
-          mirrored_states  = torch.from_numpy(state_fn(state_squished)).view(states.size())
-          mirrored_states  = self.actor.normalize_state(mirrored_states, update=False)
-
-          action_squished  = self.actor(mirrored_states).view(squished, action_dim).numpy()
+          action_fn        = self.env.mirror_action
+          squished         = np.prod(list(states.size())[:-1]) 
+          action_dim       = actions.size()[-1]
+          action_squished  = self.actor(mirror_states).view(squished, action_dim).numpy()
           mirrored_actions = torch.from_numpy(action_fn(action_squished)).view(actions.size())
 
-        unmirrored_actions   = self.actor(norm_states)
-        mirror_loss = 4 * (unmirrored_actions - mirrored_actions).pow(2).mean()
+        unmirrored_actions = pdf.mean
+        mirror_loss = self.mirror * 4 * (unmirrored_actions - mirrored_actions).pow(2).mean()
+        print("{:3.2f}s to calculate mirror loss".format(time() - mirror_time))
+      else:
+        mirror_loss = torch.zeros(1)
 
       self.actor_optim.zero_grad()
       self.critic_optim.zero_grad()
 
-      (actor_loss + entropy_penalty + mirror_loss).backward()
+      (actor_loss + entropy_penalty + mirror_loss + sparsity_loss).backward()
       critic_loss.backward()
 
       torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.grad_clip)
@@ -286,26 +330,7 @@ class PPO:
       self.critic_optim.step()
 
       with torch.no_grad():
-        return kl_divergence(pdf, old_pdf).mean().numpy(), ((actor_loss + entropy_penalty).item(), critic_loss.item(), mirror_loss.item())
-
-    def merge_buffers(self, buffers):
-      memory = Buffer()
-
-      for b in buffers:
-        offset = len(memory)
-
-        memory.states  += b.states
-        memory.actions += b.actions
-        memory.rewards += b.rewards
-        memory.values  += b.values
-        memory.returns += b.returns
-
-        memory.ep_returns += b.ep_returns
-        memory.ep_lens    += b.ep_lens
-
-        memory.traj_idx += [offset + i for i in b.traj_idx[1:]]
-        memory.size     += b.size
-      return memory
+        return kl_divergence(pdf, old_pdf).mean().numpy(), ((actor_loss + entropy_penalty).item(), critic_loss.item(), mirror_loss.item(), latent_norm.item())
 
     def do_iteration(self, num_steps, max_traj_len, epochs, kl_thresh=0.02, verbose=True, batch_size=64, mirror=False):
       self.old_actor.load_state_dict(self.actor.state_dict())
@@ -326,12 +351,17 @@ class PPO:
 
       start = time()
       buffers = ray.get([w.collect_experience.remote(max_traj_len, steps) for w in self.workers])
-      memory = self.merge_buffers(buffers)
+      memory = merge_buffers(buffers)
 
       total_steps = len(memory)
       elapsed = time() - start
       if verbose:
         print("\t{:3.2f}s to collect {:6n} timesteps | {:3.2}k/s.".format(elapsed, total_steps, (total_steps/1000)/elapsed))
+
+      if self.mirror > 0:
+        state_fn = self.env.mirror_state
+      else:
+        state_fn = None
 
       start  = time()
       kls    = []
@@ -339,15 +369,23 @@ class PPO:
       a_loss = []
       c_loss = []
       m_loss = []
+      s_loss = []
       for epoch in range(epochs):
-        for batch in memory.sample(batch_size=batch_size, recurrent=self.recurrent):
-          states, actions, returns, advantages, mask = batch
-          
-          kl, losses = self.update_policy(states, actions, returns, advantages, mask, mirror=mirror)
+        epoch_start = time()
+        for batch in memory.sample(batch_size=batch_size, recurrent=self.recurrent, mirror=state_fn):
+
+          if state_fn is not None:
+            states, mirror_states, actions, returns, advantages, mask = batch
+          else:
+            mirror_states = None
+            states, actions, returns, advantages, mask = batch
+
+          kl, losses = self.update_policy(states, actions, returns, advantages, mask, mirror_states=mirror_states)
           kls += [kl]
           a_loss += [losses[0]]
           c_loss += [losses[1]]
           m_loss += [losses[2]]
+          s_loss += [losses[3]]
 
           if max(kls) > kl_thresh:
               done = True
@@ -355,14 +393,14 @@ class PPO:
               break
 
         if verbose:
-          print("\t\tepoch {:2d} kl {:4.3f}, actor loss {:6.3f}, critic loss {:6.3f}".format(epoch+1, np.mean(kls), np.mean(a_loss), np.mean(c_loss)))
+          print("\t\tepoch {:2d} in {:3.2f}s, kl {:6.5f}, actor loss {:6.3f}, critic loss {:6.3f}".format(epoch+1, time() - epoch_start, np.mean(kls), np.mean(a_loss), np.mean(c_loss)))
 
         if done:
           break
 
       if verbose:
         print("\t{:3.2f}s to update policy.".format(time() - start))
-      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), np.mean(m_loss), len(memory)
+      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), np.mean(m_loss), np.mean(s_loss), len(memory)
 
 def run_experiment(args):
   torch.set_num_threads(1)
@@ -371,7 +409,7 @@ def run_experiment(args):
   from util.log import create_logger
 
   from policies.critic import FF_V, LSTM_V, GRU_V
-  from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor, GRU_Stochastic_Actor
+  from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor, GRU_Stochastic_Actor, QBN_GRU_Stochastic_Actor
 
   import locale, os
   locale.setlocale(locale.LC_ALL, '')
@@ -395,17 +433,21 @@ def run_experiment(args):
   elif args.arch.lower() == 'gru':
     policy = GRU_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
     critic = GRU_V(obs_dim, layers=layers)
+  elif args.arch.lower() == 'qbngru':
+    policy = QBN_GRU_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
+    critic = GRU_V(obs_dim, layers=layers)
   elif args.arch.lower() == 'ff':
     policy = FF_Stochastic_Actor(obs_dim, action_dim, env_name=args.env, fixed_std=std, bounded=False, layers=layers)
     critic = FF_V(obs_dim, layers=layers)
   else:
     raise RuntimeError
-
   policy.legacy = False
   env = env_fn()
 
   print("Collecting normalization statistics with {} states...".format(args.prenormalize_steps))
   train_normalizer(policy, args.prenormalize_steps, max_traj_len=args.traj_len, noise=1)
+
+  critic.copy_normalizer_stats(policy)
 
   policy.train(0)
   critic.train(0)
@@ -447,13 +489,17 @@ def run_experiment(args):
   timesteps = 0
   best_reward = None
   while timesteps < args.timesteps:
-    eval_reward, kl, a_loss, c_loss, m_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl, mirror=args.mirror)
+    eval_reward, kl, a_loss, c_loss, m_loss, s_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl, mirror=args.mirror)
 
     timesteps += steps
+    print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | ".format(itr, eval_reward, kl, timesteps), end='')
     if m_loss != 0:
-      print("iter {:4d} | return: {:5.2f} | mirror {:6.5f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, m_loss, kl, timesteps))
-    else:
-      print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | timesteps {:n}".format(itr, eval_reward, kl, timesteps))
+      print("mirror {:6.5f} | ".format(m_loss), end='')
+
+    if s_loss != 0:
+      print("sparsity {:6.5f} | ".format(s_loss), end='')
+
+    print("timesteps {:n}".format(timesteps))
 
     if best_reward is None or eval_reward > best_reward:
       print("\t(best policy so far! saving to {})".format(args.save_actor))
@@ -470,5 +516,6 @@ def run_experiment(args):
       logger.add_scalar(args.env + '/actor loss', a_loss, timesteps)
       logger.add_scalar(args.env + '/critic loss', c_loss, timesteps)
       logger.add_scalar(args.env + '/mirror loss', m_loss, timesteps)
+      logger.add_scalar(args.env + '/sparsity loss', s_loss, timesteps)
     itr += 1
   print("Finished ({} of {}).".format(timesteps, args.timesteps))

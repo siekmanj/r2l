@@ -25,11 +25,6 @@ def get_hiddens(policy):
   if hasattr(policy, 'latent'):
     hiddens += [l for l in policy.latent]
   
-  #for layer in hiddens:
-  #  if layer.size(0) != 1:
-  #    print("Invalid batch dim.")
-  #    raise RuntimeError
-
   return torch.cat([layer.view(-1) for layer in hiddens]).numpy()
   
 def collect_point(policy, max_traj_len):

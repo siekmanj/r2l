@@ -2,336 +2,120 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from policies.base import Net
+from policies.base import FF_Base, LSTM_Base, GRU_Base
 
-import numpy as np
-def fanin_init(size, fanin=None):
-    fanin = fanin or size[0]
-    v = 1. / np.sqrt(fanin)
-    return torch.Tensor(size).uniform_(-v, v)
-
-class Critic(Net):
+class Q:
   """
-  The base class for a critic.
+  The base class for Q functions.
   """
-  def __init__(self):
-    super(Critic, self).__init__()
+  def __init__(self, latent, env_name):
+    self.env_name          = env_name
+    self.network_out       = nn.Linear(latent, 1)
 
-    self.welford_reward_mean = 0.0
-    self.welford_reward_mean_diff = 1.0
-    self.welford_reward_n = 1
-
-  def forward(self):
-    raise NotImplementedError
-
-class FF_Q(Critic):
-  """
-  A simple feedforward Q function, which learns the value of a
-  state-action pair.
-  """
-  def __init__(self, state_dim, action_dim, layers=(256, 256), env_name='NOT SET', normc_init=True):
-    super(FF_Q, self).__init__()
-
-    self.critic_layers = nn.ModuleList()
-    self.critic_layers += [nn.Linear(state_dim + action_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.critic_layers += [nn.Linear(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], 1)
-
-    self.env_name = env_name
-
-    if normc_init:
-      self.initialize_parameters()
-
-  def forward(self, state, action):
+  def q_forward(self, state, action, update=False):
+    state = self.normalize_state(state, update=update)
     x = torch.cat([state, action], len(state.size())-1)
-
-    for idx, layer in enumerate(self.critic_layers):
-      x = F.relu(layer(x))
-
+    x = self._base_forward(x)
     return self.network_out(x)
 
-class FF_V(Critic):
+
+class FF_Q(FF_Base, Q):
   """
-  A simple feedforward value function, which learns the value of a
-  state when following some policy.
+  A class inheriting from FF_Base and Q
+  which implements a feedforward Q function.
   """
-  def __init__(self, state_dim, layers=(256, 256), env_name='NOT SET', normc_init=True):
-    super(FF_V, self).__init__()
+  def __init__(self, state_dim, action_dim, layers=(256, 256), env_name=None):
+    FF_Base.__init__(self, state_dim + action_dim, layers, F.relu)
+    Q.__init__(self, layers[-1], env_name)
 
-    self.critic_layers = nn.ModuleList()
-    self.critic_layers += [nn.Linear(state_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.critic_layers += [nn.Linear(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], 1)
+  def forward(self, state, action):
+    return self.q_forward(state, action)
 
-    self.env_name = env_name
 
-    if normc_init:
-      self.initialize_parameters()
+class LSTM_Q(LSTM_Base, Q):
+  """
+  A class inheriting from LSTM_Base and Q
+  which implements a recurrent Q function.
+  """
+  def __init__(self, state_dim, action_dim, layers=(128, 128), env_name=None):
+    LSTM_Base.__init__(self, state_dim + action_dim, layers)
+    Q.__init__(self, layers[-1], env_name)
 
-  def forward(self, state):
+    self.is_recurrent = True
+    self.init_hidden_state()
 
-    x = state
-    for idx, layer in enumerate(self.critic_layers):
-      x = F.relu(layer(x))
+  def forward(self, state, action):
+    return self.q_forward(state, action)
 
-    #print("FF_V is returning size {} from input {}".format(x.size(), state.size()))
+class GRU_Q(GRU_Base, Q):
+  """
+  A class inheriting from GRU_Base and Q
+  which implements a recurrent Q function.
+  """
+  def __init__(self, state_dim, action_dim, layers=(128, 128), env_name=None):
+    GRU_Base.__init__(self, state_dim + action_dim, layers)
+    Q.__init__(self, layers[-1], env_name)
+
+    self.is_recurrent = True
+    self.init_hidden_state()
+
+  def forward(self, state, action):
+    return self.q_forward(state, action)
+
+
+class V:
+  """
+  The base class for Value functions.
+  """
+  def __init__(self, latent, env_name):
+    self.env_name          = env_name
+    self.network_out       = nn.Linear(latent, 1)
+
+  def v_forward(self, state, update=False):
+    state = self.normalize_state(state, update=update)
+    x = self._base_forward(state)
     return self.network_out(x)
 
-class LSTM_Q(Critic):
+
+class FF_V(FF_Base, V):
   """
-  An LSTM Q function, which learns the value of a state-action pair
-  with the aid of memory.
+  A class inheriting from FF_Base and V
+  which implements a feedforward value function.
   """
-  def __init__(self, input_dim, action_dim, layers=(128, 128), env_name='NOT SET', normc_init=True):
-    super(LSTM_Q, self).__init__()
+  def __init__(self, input_dim, layers=(256, 256), env_name=None):
+    FF_Base.__init__(self, input_dim, layers, F.relu)
+    V.__init__(self, layers[-1], env_name)
 
-    self.critic_layers = nn.ModuleList()
-    self.critic_layers += [nn.LSTMCell(input_dim + action_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.critic_layers += [nn.LSTMCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], 1)
-
-    self.init_hidden_state()
-
-    self.is_recurrent = True
-    self.env_name = env_name
-
-    if normc_init:
-      self.initialize_parameters()
-
-  def get_hidden_state(self):
-    return self.hidden, self.cells
-
-  def init_hidden_state(self, batch_size=1):
-    self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.critic_layers]
-    self.cells  = [torch.zeros(batch_size, l.hidden_size) for l in self.critic_layers]
-  
-  def forward(self, state, action):
-    dims = len(state.size())
-
-    if len(state.size()) != len(action.size()):
-      print("state and action must have same number of dimensions: {} vs {}", state.size(), action.size())
-      exit(1)
-
-    if dims == 3: # if we get a batch of trajectories
-      self.init_hidden_state(batch_size=state.size(1))
-      value = []
-      for t, (state_batch_t, action_batch_t) in enumerate(zip(state, action)):
-        x_t = torch.cat([state_batch_t, action_batch_t], 1)
-
-        for idx, layer in enumerate(self.critic_layers):
-          c, h = self.cells[idx], self.hidden[idx]
-          self.hidden[idx], self.cells[idx] = layer(x_t, (h, c))
-          x_t = self.hidden[idx]
-        x_t = self.network_out(x_t)
-        value.append(x_t)
-
-      x = torch.stack([a.float() for a in value])
-
-    else:
-
-      x = torch.cat([state, action], len(state_t.size()))
-      if dims == 1:
-        x = x.view(1, -1)
-
-      for idx, layer in enumerate(self.critic_layers):
-        c, h = self.cells[idx], self.hidden[idx]
-        self.hidden[idx], self.cells[idx] = layer(x_t, (h, c))
-        x = self.hidden[idx]
-      x = self.network_out(x)
-      
-      if dims == 1:
-        x = x.view(-1)
-
-    return x
-
-class LSTM_V(Critic):
-  """
-  An LSTM value function, which learns the value of a state
-  when following some policy with the aid of memory.
-  """
-  def __init__(self, input_dim, layers=(128, 128), env_name='NOT SET', normc_init=True):
-    super(LSTM_V, self).__init__()
-
-    self.critic_layers = nn.ModuleList()
-    self.critic_layers += [nn.LSTMCell(input_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.critic_layers += [nn.LSTMCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], 1)
-
-    self.init_hidden_state()
-
-    self.is_recurrent = True
-    self.env_name = env_name
-
-    if normc_init:
-      self.initialize_parameters()
-
-  def get_hidden_state(self):
-    return self.hidden, self.cells
-
-  def init_hidden_state(self, batch_size=1):
-    self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.critic_layers]
-    self.cells  = [torch.zeros(batch_size, l.hidden_size) for l in self.critic_layers]
-  
   def forward(self, state):
-    dims = len(state.size())
+    return self.v_forward(state)
 
-    if dims == 3: # if we get a batch of trajectories
-      self.init_hidden_state(batch_size=state.size(1))
-      value = []
-      for t, state_batch_t in enumerate(state):
-        x_t = state_batch_t
-        for idx, layer in enumerate(self.critic_layers):
-          c, h = self.cells[idx], self.hidden[idx]
-          self.hidden[idx], self.cells[idx] = layer(x_t, (h, c))
-          x_t = self.hidden[idx]
-        x_t = self.network_out(x_t)
-        value.append(x_t)
 
-      x = torch.stack([a.float() for a in value])
-
-    else:
-      x = state
-      if dims == 1:
-        x = x.view(1, -1)
-
-      for idx, layer in enumerate(self.critic_layers):
-        c, h = self.cells[idx], self.hidden[idx]
-        self.hidden[idx], self.cells[idx] = layer(x, (h, c))
-        x = self.hidden[idx]
-      x = self.network_out(x)
-
-      if dims == 1:
-        x = x.view(-1)
-
-    return x
-
-class GRU_Q(Critic):
+class LSTM_V(LSTM_Base, V):
   """
-  A GRU Q function, which learns the value of a state-action pair.
+  A class inheriting from LSTM_Base and V
+  which implements a recurrent value function.
   """
-  def __init__(self, input_dim, action_dim, layers=(128, 128), env_name='NOT SET', normc_init=True):
-    super(GRU_Q, self).__init__()
-
-    self.critic_layers = nn.ModuleList()
-    self.critic_layers += [nn.GRUCell(input_dim + action_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.critic_layers += [nn.GRUCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], 1)
-
-    self.init_hidden_state()
+  def __init__(self, input_dim, layers=(128, 128), env_name=None):
+    LSTM_Base.__init__(self, input_dim, layers)
+    V.__init__(self, layers[-1], env_name)
 
     self.is_recurrent = True
-    self.env_name = env_name
-
-    if normc_init:
-      self.initialize_parameters()
-
-  def get_hidden_state(self):
-    return self.hidden
-
-  def init_hidden_state(self, batch_size=1):
-    self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.critic_layers]
-  
-  def forward(self, state, action):
-    dims = len(state.size())
-
-    if len(state.size()) != len(action.size()):
-      print("state and action must have same number of dimensions: {} vs {}", state.size(), action.size())
-      exit(1)
-
-    if dims == 3: # if we get a batch of trajectories
-      self.init_hidden_state(batch_size=state.size(1))
-      value = []
-      for t, (state_batch_t, action_batch_t) in enumerate(zip(state, action)):
-        x_t = torch.cat([state_batch_t, action_batch_t], 1)
-
-        for idx, layer in enumerate(self.critic_layers):
-          h = self.hidden[idx]
-          self.hidden[idx] = layer(x_t, h)
-          x_t = self.hidden[idx]
-        x_t = self.network_out(x_t)
-        value.append(x_t)
-
-      x = torch.stack([a.float() for a in value])
-
-    else:
-
-      x = torch.cat([state, action], len(state_t.size()))
-      if dims == 1:
-        x = x.view(1, -1)
-
-      for idx, layer in enumerate(self.critic_layers):
-        h = self.hidden[idx]
-        self.hidden[idx] = layer(x_t, h)
-        x = self.hidden[idx]
-      x = self.network_out(x)
-      
-      if dims == 1:
-        x = x.view(-1)
-
-    return x
-
-class GRU_V(Critic):
-  """
-  A GRU value function, which learns the value of a state when
-  following some policy.
-  """
-  def __init__(self, input_dim, layers=(128, 128), env_name='NOT SET', normc_init=True):
-    super(GRU_V, self).__init__()
-
-    self.critic_layers = nn.ModuleList()
-    self.critic_layers += [nn.GRUCell(input_dim, layers[0])]
-    for i in range(len(layers)-1):
-        self.critic_layers += [nn.GRUCell(layers[i], layers[i+1])]
-    self.network_out = nn.Linear(layers[-1], 1)
-
     self.init_hidden_state()
 
-    self.is_recurrent = True
-    self.env_name = env_name
-
-    if normc_init:
-      self.initialize_parameters()
-
-  def get_hidden_state(self):
-    return self.hidden
-
-  def init_hidden_state(self, batch_size=1):
-    self.hidden = [torch.zeros(batch_size, l.hidden_size) for l in self.critic_layers]
-  
   def forward(self, state):
-    dims = len(state.size())
+    return self.v_forward(state)
 
-    if dims == 3: # if we get a batch of trajectories
-      self.init_hidden_state(batch_size=state.size(1))
-      value = []
-      for t, state_batch_t in enumerate(state):
-        x_t = state_batch_t
-        for idx, layer in enumerate(self.critic_layers):
-          h = self.hidden[idx]
-          self.hidden[idx] = layer(x_t, h)
-          x_t = self.hidden[idx]
-        x_t = self.network_out(x_t)
-        value.append(x_t)
+class GRU_V(GRU_Base, V):
+  """
+  A class inheriting from GRU_Base and V
+  which implements a recurrent value function.
+  """
+  def __init__(self, input_dim, layers=(128, 128), env_name=None):
+    GRU_Base.__init__(self, input_dim, layers)
+    V.__init__(self, layers[-1], env_name)
 
-      x = torch.stack([a.float() for a in value])
+    self.is_recurrent = True
+    self.init_hidden_state()
 
-    else:
-      x = state
-      if dims == 1:
-        x = x.view(1, -1)
-
-      for idx, layer in enumerate(self.critic_layers):
-        h = self.hidden[idx]
-        self.hidden[idx] = layer(x, h)
-        x = self.hidden[idx]
-      x = self.network_out(x)
-
-      if dims == 1:
-        x = x.view(-1)
-
-    return x
+  def forward(self, state):
+    return self.v_forward(state)

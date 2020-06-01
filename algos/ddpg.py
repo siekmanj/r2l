@@ -42,8 +42,8 @@ class DDPG():
     states, actions, next_states, rewards, not_dones, steps, mask = replay_buffer.sample(batch_size, sample_trajectories=self.recurrent, max_len=traj_len)
 
     with torch.no_grad():
-      states      = self.actor.normalize_state(states, update=False)
-      next_states = self.actor.normalize_state(next_states, update=False)
+      #states      = self.actor.normalize_state(states, update=False)
+      #next_states = self.actor.normalize_state(next_states, update=False)
 
       target_q = rewards + (not_dones * self.discount * self.target_critic(next_states, self.target_actor(next_states))) * mask
 
