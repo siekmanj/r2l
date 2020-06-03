@@ -122,9 +122,9 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
 
-        env.speed = 0.0
+        env.speed = 0.8
         env.side_speed = 0.0
-        env.phase_add = 60
+        env.phase_add = 75
         env.orient_add = 0
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
