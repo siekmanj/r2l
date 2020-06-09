@@ -64,6 +64,11 @@ def env_factory(path, verbose=False, **kwargs):
       else:
         impedance = False
 
+      if 'height' in path:
+        height = True
+      else:
+        height = False
+
       if verbose:
         print("Created cassie env with arguments:")
         print("\tdynamics randomization: {}".format(dynamics_randomization))
@@ -71,7 +76,8 @@ def env_factory(path, verbose=False, **kwargs):
         print("\tno delta:               {}".format(no_delta))
         print("\tclock based:            {}".format(clock))
         print("\timpedance control:      {}".format(impedance))
-      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history, legacy=legacy, impedance=impedance)
+        print("\theight control:         {}".format(height))
+      return partial(CassieEnv_v2, 'walking', clock=clock, state_est=state_est, no_delta=no_delta, dynamics_randomization=dynamics_randomization, history=history, legacy=legacy, impedance=impedance, height=height)
 
     import gym
     spec = gym.envs.registry.spec(path)
@@ -122,10 +128,11 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
 
-        env.speed = 0.8
-        env.side_speed = 0.0
+        #print(env.speed)
+        env.speed = 1.0
+        #env.side_speed = 0.0
         env.phase_add = 75
-        env.orient_add = 0
+        #env.orient_add = 0
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
         if visualize:
