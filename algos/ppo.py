@@ -314,7 +314,7 @@ class PPO:
 
         unmirrored_actions = pdf.mean
         mirror_loss = self.mirror * 4 * (unmirrored_actions - mirrored_actions).pow(2).mean()
-        print("{:3.2f}s to calculate mirror loss".format(time() - mirror_time))
+        #print("{:3.2f}s to calculate mirror loss".format(time() - mirror_time))
       else:
         mirror_loss = torch.zeros(1)
 
