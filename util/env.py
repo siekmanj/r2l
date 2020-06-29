@@ -124,14 +124,25 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
       if hasattr(policy, 'init_hidden_state'):
         policy.init_hidden_state()
 
+      speeds = [(0, 0), (0.5, 0), (2.0, 0)]
+      #speeds = list(zip(np.array(range(0, 200)) / 100, np.zeros(200)))
+      pelvis_vel = 0
       while not done and timesteps < max_traj_len:
         if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
 
-        env.speed = 0.0
-        env.side_speed = 0.0
-        env.phase_add = 60
+        pelvis_vel = 0.1 * env.rotate_to_orient(env.cassie_state.pelvis.translationalVelocity[:])[0] + 0.9 * pelvis_vel
+        #print("VEL: {:4.3f}".format(pelvis_vel))
+
+        env.speed, env.side_speed = speeds[(timesteps * len(speeds)) // max_traj_len]
+        env.phase_add = 90
         env.orient_add = 0
+        env.height = 0.95
+        env.foot_height = 0.1
+
+
+        #env.foot_height = fheights[(timesteps * 3) // max_traj_len]
+
         action = policy.forward(torch.Tensor(state)).detach().numpy()
         state, reward, done, _ = env.step(action)
         if visualize:
