@@ -124,20 +124,21 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
       if hasattr(policy, 'init_hidden_state'):
         policy.init_hidden_state()
 
-      speeds = [(0, 0), (0.5, 0), (2.0, 0)]
-      #speeds = list(zip(np.array(range(0, 200)) / 100, np.zeros(200)))
+      #speeds = [(0, 0), (0.5, 0), (2.0, 0)]
+      speeds = list(zip(np.array(range(0, 350)) / 100, np.zeros(350)))
       pelvis_vel = 0
       while not done and timesteps < max_traj_len:
         if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
 
         pelvis_vel = 0.1 * env.rotate_to_orient(env.cassie_state.pelvis.translationalVelocity[:])[0] + 0.9 * pelvis_vel
-        #print("VEL: {:4.3f}".format(pelvis_vel))
+        print("actual {:4.3f}, commanded {:4.3f}".format(pelvis_vel, env.speed))
 
         env.speed, env.side_speed = speeds[(timesteps * len(speeds)) // max_traj_len]
-        env.phase_add = 90
+        #env.speed = 0
+        env.phase_add = int(60 * np.clip(speeds[(timesteps * len(speeds)) // max_traj_len][0], 1, 2))
         env.orient_add = 0
-        env.height = 0.95
+        env.height = 0.9
         env.foot_height = 0.1
 
 
