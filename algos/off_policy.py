@@ -10,52 +10,75 @@ from util.log import create_logger
 from torch.nn.utils.rnn import pad_sequence
 
 class ReplayBuffer():
-  def __init__(self, state_dim, action_dim, max_size):
-    self.max_size     = int(max_size)
-    self.state        = torch.zeros((self.max_size, state_dim))
-    self.next_state   = torch.zeros((self.max_size, state_dim))
-    self.action       = torch.zeros((self.max_size, action_dim))
-    self.reward       = torch.zeros((self.max_size, 1))
-    self.not_done     = torch.zeros((self.max_size, 1))
-    self.traj     = [0]
-    self.size         = 1
+  def __init__(self, max_size):
+    self.max_size  = int(max_size)
+    self.states    = [] 
+    self.actions   = [] 
+    self.next_states = []
+    self.rewards   = [] 
+    self.not_dones = []
+    self.traj_idx  = [0]
+    self.size      = 0
+    self.buffer_ready = False
 
   def push(self, state, action, next_state, reward, done):
-    if self.size == self.max_size:
-      print("\nBuffer full.")
-      exit(1)
+    while len(self.states) >= self.max_size:
+      print("Buffer full, removing {} / {}".format(len(self.states), self.max_size))
+      self.states      = self.states[self.traj_idx[1]:]
+      self.actions     = self.actions[self.traj_idx[1]:]
+      self.next_states = self.next_states[self.traj_idx[1]:]
+      self.rewards     = self.rewards[self.traj_idx[1]:]
+      self.not_dones   = self.not_dones[self.traj_idx[1]:]
 
-    idx = self.size-1
-
-    self.state[idx]      = torch.Tensor(state)
-    self.next_state[idx] = torch.Tensor(next_state)
-    self.action[idx]     = torch.Tensor(action)
-    self.reward[idx]     = reward
-    self.not_done[idx]   = 1 - done
+    self.states      += [state]
+    self.actions     += [action]
+    self.next_states += [next_state]
+    self.rewards     += [reward]
+    self.not_dones   += [1 if done is False else 0]
 
     if done:
-      self.traj.append(self.size)
+      self.traj_idx.append(len(self.states))
 
-    self.size = min(self.size+1, self.max_size)
+    self.size = len(self.states)
+
+  def merge_with(self, buffers):
+
+    for b in buffers:
+      offset = len(self.states)
+      self.states      += b.states
+      self.actions     += b.actions
+      self.rewards     += b.rewards
+      self.next_states += b.next_states
+      self.not_dones   += b.not_dones
+      self.traj_idx    += [offset + i for i in b.traj_idx[1:]]
+      self.size        += b.size
+
+  def _finish_buffer(self):
+    with torch.no_grad():
+      self.states = torch.Tensor(self.states)
+      self.actions = torch.Tensor(self.actions)
+      self.next_states = torch.Tensor(self.next_states)
+      self.rewards = torch.Tensor(self.rewards)
+      self.not_dones = torch.Tensor(self.not_dones)
+      
+      self.buffer_ready = True
 
   def sample(self, batch_size, recurrent=False):
+    if not self.buffer_ready:
+      self._finish_buffer()
+
     if recurrent:
       # Collect raw trajectories from replay buffer
-      traj_indices = np.random.randint(0, len(self.traj), size=batch_size)
+      traj_indices = np.random.randint(0, len(self.traj_idx)-1, size=batch_size)
 
       # Extract trajectory info into separate lists to be padded and batched
-      #states      = [traj[0] for traj in raw_traj]
-      #actions     = [traj[1] for traj in raw_traj]
-      #next_states = [traj[2] for traj in raw_traj]
-      #rewards     = [traj[3] for traj in raw_traj]
-      #not_dones   = [traj[4] for traj in raw_traj]
-      states       = [self.states  [self.traj[i]:self.traj[i+1]] for i in traj_indices][:-1]
-      actions      = [self.actions [self.traj[i]:self.traj[i+1]] for i in traj_indices][:-1]
-      rewards      = [self.rewards [self.traj[i]:self.traj[i+1]] for i in traj_indices][:-1]
-      not_dones    = [self.not_done[self.traj[i]:self.traj[i+1]] for i in traj_indices][:-1]
-      next_states  = [self.states  [self.traj[i]:self.traj[i+1]] for i in traj_indices][1:]
+      states       = [self.states     [self.traj_idx[i]:self.traj_idx[i+1]] for i in traj_indices]
+      actions      = [self.actions    [self.traj_idx[i]:self.traj_idx[i+1]] for i in traj_indices]
+      rewards      = [self.rewards    [self.traj_idx[i]:self.traj_idx[i+1]] for i in traj_indices]
+      not_dones    = [self.not_dones  [self.traj_idx[i]:self.traj_idx[i+1]] for i in traj_indices]
+      next_states  = [self.next_states[self.traj_idx[i]:self.traj_idx[i+1]] for i in traj_indices]
 
-      # Get the trajectory mask for the critic
+      # Get the trajectory mask
       traj_mask = [torch.ones_like(reward) for reward in rewards]
 
       # Pad all trajectories to be the same length, shape is (traj_len x batch_size x dim)
@@ -66,29 +89,35 @@ class ReplayBuffer():
       not_dones   = pad_sequence(not_dones,   batch_first=False)
       traj_mask   = pad_sequence(traj_mask,   batch_first=False)
 
-      return states, actions, next_states, rewards, not_dones, steps, traj_mask
-    else:
-      idx = np.random.randint(0, self.size, size=batch_size)
-      return self.state[idx], self.action[idx], self.next_state[idx], self.reward[idx], self.not_done[idx], batch_size, 1
 
-def collect_experience(policy, env, replay_buffer, state, steps, noise=0.2, max_len=1000):
+      return states, actions, next_states, rewards, not_dones, traj_mask
+    else:
+      idx      = np.random.randint(0, self.size-1, size=batch_size)
+      next_idx = idx + 1
+      return self.state[idx], self.action[idx], self.next_state[next_idx], self.reward[idx], self.not_done[idx], 1
+
+def collect_episode(policy, env, noise=0.2, max_len=1000):
   with torch.no_grad():
-    if noise is None:
-      a = policy.forward(state, deterministic=False).numpy()
-    else:
-      a = policy.forward(state).numpy() + np.random.normal(0, noise, size=policy.action_dim)
+    buff  = ReplayBuffer(1e6)
+    done  = False
+    state = env.reset()
+    steps = 1
 
-    state_t1, r, done, _ = env.step(a)
+    while not done:
+      action = policy.forward(state).numpy()
+      if noise is not None:
+        action += np.random.normal(0, noise, size=policy.action_dim)
 
-    if done or steps > max_len:
-      state_t1 = env.reset()
-      done = True
-      if hasattr(policy, 'init_hidden_state'):
-        policy.init_hidden_state()
+      next_state, reward, done, _ = env.step(action)
 
-    replay_buffer.push(state, a, state_t1.astype(np.float32), r, done)
+      if steps > max_len:
+        done = True
 
-    return state_t1, r, done
+      buff.push(state, action, next_state, reward, done)
+
+      state = next_state
+
+    return buff
 
 def run_experiment(args):
   from policies.critic import FF_Q, LSTM_Q
@@ -108,7 +137,7 @@ def run_experiment(args):
   obs_space = env.observation_space.shape[0]
   act_space = env.action_space.shape[0]
 
-  replay_buff = ReplayBuffer(obs_space, act_space, args.timesteps)
+  replay_buff = ReplayBuffer(args.timesteps)
 
   layers = [int(x) for x in args.layers.split(',')]
 
@@ -178,16 +207,20 @@ def run_experiment(args):
   train_normalizer(algo.actor, args.prenormalize_steps, noise=algo.expl_noise)
 
   # Fill replay buffer, update policy until n timesteps have passed
-  timesteps = 0
+  timesteps, episodes = 0, 0
   state = env.reset().astype(np.float32)
   while timesteps < args.timesteps:
-    buffer_ready = (algo.recurrent and replay_buff.trajectories > args.batch_size) or (not algo.recurrent and replay_buff.size > args.batch_size)
-    warmup = timesteps < args.start_timesteps
+    buf = [collect_episode(algo.actor, env, max_len=args.traj_len, noise=algo.expl_noise)]
+    replay_buff.merge_with(buf)
 
-    state, r, done = collect_experience(algo.actor, env, replay_buff, state, episode_timesteps,
-                                        max_len=args.traj_len,
-                                        noise=algo.expl_noise)
-    episode_reward += r
+    timesteps += sum(len(b.states) for b in buf)
+    episodes += 1
+
+    loss = algo.update_policy(replay_buff, batch_size=min(episodes, args.batch_size))
+    print("done.")
+
+    """
+    buffer_ready = (algo.recurrent and len(replay_buff.traj_idx) > args.batch_size) or (not algo.recurrent and replay_buff.size > args.batch_size)
     episode_timesteps += 1
     timesteps += 1
 
@@ -209,8 +242,8 @@ def run_experiment(args):
       episode_elapsed = (time.time() - episode_start)
       episode_secs_per_sample = episode_elapsed / episode_timesteps
 
-      actor_loss = np.mean([loss[0] for loss in losses])
-      critic_loss = np.mean([loss[1] for loss in losses])
+      actor_loss   = np.mean([loss[0] for loss in losses])
+      critic_loss  = np.mean([loss[1] for loss in losses])
       update_steps = sum([loss[-1] for loss in losses])
 
       logger.add_scalar(args.env + '/actor loss', actor_loss, timesteps - args.start_timesteps)
@@ -221,11 +254,11 @@ def run_experiment(args):
         alpha_loss = np.mean([loss[2] for loss in losses])
         logger.add_scalar(args.env + '/alpha loss', alpha_loss, timesteps - args.start_timesteps)
 
-      completion = 1 - float(timesteps) / args.timesteps
-      avg_sample_r = (time.time() - training_start)/timesteps
+      completion     = 1 - float(timesteps) / args.timesteps
+      avg_sample_r   = (time.time() - training_start)/timesteps
       secs_remaining = avg_sample_r * args.timesteps * completion
-      hrs_remaining = int(secs_remaining//(60*60))
-      min_remaining = int(secs_remaining - hrs_remaining*60*60)//60
+      hrs_remaining  = int(secs_remaining//(60*60))
+      min_remaining  = int(secs_remaining - hrs_remaining*60*60)//60
 
       if iter % args.eval_every == 0 and iter != 0:
         eval_reward = eval_policy(algo.actor, min_timesteps=1000, verbose=False, visualize=False, max_traj_len=args.traj_len)
@@ -257,3 +290,4 @@ def run_experiment(args):
 
       episode_start, episode_reward, episode_timesteps, episode_loss = time.time(), 0, 0, 0
       iter += 1
+    """
