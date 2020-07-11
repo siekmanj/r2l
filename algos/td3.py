@@ -50,18 +50,13 @@ class TD3():
     with torch.no_grad():
       noise        = (torch.randn_like(actions) * self.policy_noise).clamp(-noise_clip, noise_clip)
       next_actions = self.target_actor(next_states)
-      wtf_actions = self.actor(next_states)
 
-      next_actions2 = self.target_actor(states)
-      wtf_actions2 = self.actor(states)
-      #print('next actions:', next_actions.shape, wtf_actions.shape, 'normal actions', next_actions2.shape, wtf_actions2.shape)
-      #print(next_actions.shape, wtf_actions.shape, actions.shape, noise.shape, '\n\n')
       next_actions += noise
 
       target_q1 = self.target_q1(next_states, next_actions)
       target_q2 = self.target_q2(next_states, next_actions)
 
-      target_q = rewards + not_dones * self.discount * torch.min(target_q1, target_q2) * mask
+      target_q = rewards + not_dones * self.discount * torch.min(target_q1, target_q2)
 
     current_q1 = self.q1(states, actions) * mask
     current_q2 = self.q2(states, actions) * mask

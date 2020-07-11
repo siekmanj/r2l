@@ -160,7 +160,7 @@ class PPO_Worker:
     else:
       self.dynamics_randomization = False
 
-  def update_policy(self, new_actor_params, new_critic_params, input_norm=None):
+  def sync_policy(self, new_actor_params, new_critic_params, input_norm=None):
     for p, new_p in zip(self.actor.parameters(), new_actor_params):
       p.data.copy_(new_p)
 
@@ -343,7 +343,7 @@ class PPO:
       steps = max(num_steps // len(self.workers), max_traj_len)
 
       for w in self.workers:
-        w.update_policy.remote(actor_param_id, critic_param_id, input_norm=norm_id)
+        w.sync_policy.remote(actor_param_id, critic_param_id, input_norm=norm_id)
       if verbose:
         print("\t{:5.4f}s to copy policy params to workers.".format(time() - start))
 

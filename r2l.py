@@ -180,12 +180,14 @@ if __name__ == "__main__":
     parser.add_argument("--a_lr",           "-alr", default=3e-4,  type=float)    # adam learning rate for critic
     parser.add_argument("--c_lr",           "-clr", default=3e-4,  type=float)    # adam learning rate for actor
     parser.add_argument("--batch_size",             default=256,    type=int)     # batch size for policy update
-    parser.add_argument("--updates",                default=1,    type=int)       # (if recurrent) number of times to update policy per episode
+    parser.add_argument("--updates",                default=5,    type=int)       # (if recurrent) number of times to update policy per episode
     parser.add_argument("--update_freq",            default=1,    type=int)       # how many episodes to skip before updating
     parser.add_argument("--eval_every",             default=100,   type=int)      # how often to evaluate the trained policy
     parser.add_argument("--save_actor",             default=None, type=str)
     #parser.add_argument("--save_critics",           default=None, type=str)
     parser.add_argument("--prenormalize_steps",     default=10000,         type=int)      
+    parser.add_argument("--workers",                default=4,             type=int)
+    parser.add_argument("--buffer",                 default=1e4,  type=float)    # buffer size
 
     parser.add_argument("--logdir",                 default="./logs/td3/", type=str)
     args = parser.parse_args()
