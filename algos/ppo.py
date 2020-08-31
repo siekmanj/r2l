@@ -216,6 +216,7 @@ class PPO_Worker:
       return memory
 
   def evaluate(self, trajs=1, max_traj_len=400):
+    torch.set_num_threads(1)
     with torch.no_grad():
       ep_returns = []
       for traj in range(trajs):
@@ -371,7 +372,7 @@ class PPO:
       s_loss = []
       kls    = []
       update_time = time()
-      torch.set_num_threads(2)
+      torch.set_num_threads(4)
       for epoch in range(epochs):
         epoch_start = time()
         for batch in memory.sample(batch_size=batch_size, recurrent=self.recurrent, mirror=state_fn):
