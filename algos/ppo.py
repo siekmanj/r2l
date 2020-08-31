@@ -149,7 +149,6 @@ def merge_buffers(buffers):
 @ray.remote
 class PPO_Worker:
   def __init__(self, actor, critic, env_fn, gamma):
-    torch.set_num_threads(1)
     self.gamma  = gamma
     self.actor  = deepcopy(actor)
     self.critic = deepcopy(critic)
@@ -172,6 +171,7 @@ class PPO_Worker:
       self.critic.copy_normalizer_stats(self.actor)
 
   def collect_experience(self, max_traj_len, min_steps):
+    torch.set_num_threads(1)
     with torch.no_grad():
       start = time()
 
@@ -357,19 +357,21 @@ class PPO:
       elapsed = time() - start
       if verbose:
         print("\t{:3.2f}s to collect {:6n} timesteps | {:3.2}k/s.".format(elapsed, total_steps, (total_steps/1000)/elapsed))
+      sample_rate = (total_steps/1000)/elapsed
 
       if self.mirror > 0:
         state_fn = self.env.mirror_state
       else:
         state_fn = None
 
-      start  = time()
-      kls    = []
       done = False
       a_loss = []
       c_loss = []
       m_loss = []
       s_loss = []
+      kls    = []
+      update_time = time()
+      torch.set_num_threads(2)
       for epoch in range(epochs):
         epoch_start = time()
         for batch in memory.sample(batch_size=batch_size, recurrent=self.recurrent, mirror=state_fn):
@@ -381,7 +383,7 @@ class PPO:
             states, actions, returns, advantages, mask = batch
 
           kl, losses = self.update_policy(states, actions, returns, advantages, mask, mirror_states=mirror_states)
-          kls += [kl]
+          kls    += [kl]
           a_loss += [losses[0]]
           c_loss += [losses[1]]
           m_loss += [losses[2]]
@@ -398,12 +400,13 @@ class PPO:
         if done:
           break
 
+      update_time = time() - update_time
       if verbose:
-        print("\t{:3.2f}s to update policy.".format(time() - start))
-      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), np.mean(m_loss), np.mean(s_loss), len(memory)
+        print("\t{:3.2f}s to update policy.".format(update_time))
+
+      return eval_reward, np.mean(kls), np.mean(a_loss), np.mean(c_loss), np.mean(m_loss), np.mean(s_loss), len(memory), (sample_rate, update_time)
 
 def run_experiment(args):
-  torch.set_num_threads(1)
 
   from util.env import env_factory, train_normalizer
   from util.log import create_logger
@@ -489,7 +492,7 @@ def run_experiment(args):
   timesteps = 0
   best_reward = None
   while timesteps < args.timesteps:
-    eval_reward, kl, a_loss, c_loss, m_loss, s_loss, steps = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl, mirror=args.mirror)
+    eval_reward, kl, a_loss, c_loss, m_loss, s_loss, steps, (times) = algo.do_iteration(args.num_steps, args.traj_len, args.epochs, batch_size=args.batch_size, kl_thresh=args.kl, mirror=args.mirror)
 
     timesteps += steps
     print("iter {:4d} | return: {:5.2f} | KL {:5.4f} | ".format(itr, eval_reward, kl, timesteps), end='')
@@ -517,5 +520,7 @@ def run_experiment(args):
       logger.add_scalar(args.env + '/critic loss', c_loss, timesteps)
       logger.add_scalar(args.env + '/mirror loss', m_loss, timesteps)
       logger.add_scalar(args.env + '/sparsity loss', s_loss, timesteps)
+      logger.add_scalar(args.env + '/sample rate', times[0], timesteps)
+      logger.add_scalar(args.env + '/update time', times[1], timesteps)
     itr += 1
   print("Finished ({} of {}).".format(timesteps, args.timesteps))
