@@ -6,7 +6,7 @@
 
 This repo contains recurrent implementations of state-of-the-art RL algorithms. Its purpose is to be clean, legible, and easy to understand. Many RL algorithms treat recurrence as an afterthought - it is my opinion that recurrence has important theoretical and practical benefits to many RL problems, especially partially observable ones in the real world.
 
-In addition to recurrent reinforcement learning, it also provides algorithms for extracting interesting information out of recurrent policy networks. Implemented are system-ID decoding networks for use with policy networks trained with dynamics randomization (described (described in an upcoming RSS paper) and also for Quantized-Bottleneck Network insertion (described [here](https://arxiv.org/abs/1811.12530)).
+In addition to recurrent reinforcement learning, it also provides algorithms for extracting interesting information out of recurrent policy networks. Implemented are system-ID decoding networks for use with policy networks trained with dynamics randomization (described [here](https://arxiv.org/abs/2006.02402)) and also for Quantized-Bottleneck Network insertion (described [here](https://arxiv.org/abs/1811.12530)).
 
 ## First-time setup
 This repo assumes that you have [OpenAI Gym](https://gym.openai.com/) and [MuJoCo 2.0](http://www.mujoco.org/) installed, and that you are using Ubuntu 18.04, as this is my development environment (similar distros may also work). If you would like to do experiments with the simulated Cassie environment, you will also need my [Cassie](https://github.com/siekmanj/cassie) repository.
