@@ -16,6 +16,48 @@ def env_factory(path, verbose=False, **kwargs):
 
     Note: env.unwrapped.spec is never set, if that matters for some reason.
     """
+    if 'digit' in path.lower():
+      if not os.path.isdir('digit'):
+        print("You appear to be missing a './digit' directory.")
+        print("You can clone the cassie environment repository with:")
+        print("git clone https://github.com/siekmanj/digit")
+        exit(1)
+
+      from digit.digit import DigitEnv
+      path = path.lower()
+
+      if 'random_dynamics' in path or 'dynamics_random' in path or 'randomdynamics' in path or 'dynamicsrandom' in path:
+        dynamics_randomization = True
+      else:
+        dynamics_randomization = False
+
+      if 'impedance' in path:
+        impedance = True
+      else:
+        impedance = False
+
+      if 'standing' in path:
+        standing = True
+      else:
+        standing = False
+
+      if 'footpos' in path:
+        footpos = True
+      else:
+        footpos = False
+
+      if 'perception' in path:
+        perception = True
+      else:
+        perception = False
+      
+      if 'stairs' in path:
+        stairs = True
+      else:
+        stairs = False
+
+      return partial(DigitEnv, dynamics_randomization=dynamics_randomization, impedance=impedance, standing=standing, footpos=footpos, perception=perception, stairs=stairs)
+
     if 'cassie' in path.lower():
       if not os.path.isdir('cassie'):
         print("You appear to be missing a './cassie' directory.")
@@ -125,6 +167,9 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
       if hasattr(policy, 'init_hidden_state'):
         policy.init_hidden_state()
 
+      #speeds = [(0, 0), (0.5, 0), (2.0, 0)]
+      speeds = list(zip(np.array(range(0, 350)) / 100, np.zeros(350)))
+      pelvis_vel = 0
       while not done and timesteps < max_traj_len:
         if (hasattr(env, 'simrate') or hasattr(env, 'dt')) and visualize:
           start = time.time()
