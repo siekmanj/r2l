@@ -204,6 +204,171 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         print("Eval reward: ", eval_reward)
     return reward_sum / episodes
 
+def interactive_eval(policy_name):
+    from copy import deepcopy
+    import termios, sys
+    import tty
+    import select
+    with torch.no_grad():
+        policy = torch.load(policy_name)
+        m_policy = torch.load(policy_name)
+        #args, run_args = self.args, self.run_args
+        #run_args = run_args
+
+        print("env name: ", policy.env_name)
+        #if run_args.env is None:
+        #    env_name = run_args.env
+        #else:
+        #    env_name = run_args.env
+
+        env = env_factory(policy.env_name)()
+        print(env)
+        env.dynamics_randomization = False
+        env.evaluation_mode = True
+
+        #if self.run_args.pca:
+        #    from util.pca import PCA_Plot
+        #    pca_plot = PCA_Plot(policy, env)
+
+        #if self.run_args.pds:
+        #    from util.pds import PD_Plot
+        #    pd_plot = PD_Plot(policy, env)
+        #    print("DOING PDS??")
+
+        if hasattr(policy, 'init_hidden_state'):
+            policy.init_hidden_state()
+            m_policy.init_hidden_state()
+
+        old_settings = termios.tcgetattr(sys.stdin)
+
+        env.render()
+        render_state = True
+        slowmo = True
+
+        try:
+            tty.setcbreak(sys.stdin.fileno())
+
+            state = env.reset()
+            env.speed = 0
+            env.side_speed = 0
+            env.phase_add = 50
+            env.period_shift = [0, 0.5]
+            #env.ratio = [0.4, 0.6]
+            env.eval_mode = True
+            done = False
+            timesteps = 0
+            eval_reward = 0
+            mirror = False
+
+            def isData():
+                return select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], [])
+
+            while render_state:
+            
+                if isData():
+                    c = sys.stdin.read(1)
+                    if c == 'w':
+                        env.speed = np.clip(env.speed + 0.1, env.min_speed, env.max_speed)
+                    if c == 's':
+                        env.speed = np.clip(env.speed - 0.1, env.min_speed, env.max_speed)
+                    if c == 'q':
+                        env.orient_add -= 0.005 * np.pi
+                    if c == 'e':
+                        env.orient_add += 0.005 * np.pi
+                    if c == 'a':
+                        env.side_speed = np.clip(env.side_speed + 0.05, env.min_side_speed, env.max_side_speed)
+                    if c == 'd':
+                        env.side_speed = np.clip(env.side_speed - 0.05, env.min_side_speed, env.max_side_speed)
+                    if c == 'r':
+                        state = env.reset()
+                        if hasattr(policy, 'init_hidden_state'):
+                            policy.init_hidden_state()
+                            m_policy.init_hidden_state()
+                        print("Resetting environment via env.reset()")
+                        env.speed = 0
+                        env.side_speed = 0
+                        env.phase_add = env.simrate
+                        env.period_shift = [0, 0.5]
+                    if c == 't':
+                        env.phase_add = np.clip(env.phase_add + 1, int(env.simrate * env.min_step_freq), int(env.simrate * env.max_step_freq))
+                    if c == 'g':
+                        env.phase_add = np.clip(env.phase_add - 1, int(env.simrate * env.min_step_freq), int(env.simrate * env.max_step_freq))
+                    if c == 'm':
+                        mirror = not mirror
+                    if c == 'o':
+                        # increase ratio of phase 1
+                        env.ratio[0] = np.clip(env.ratio[0] + 0.01, 0, env.max_swing_ratio)
+                        env.ratio[1] = 1 - env.ratio[0]
+                    if c == 'l':
+                        env.ratio[0] = np.clip(env.ratio[0] - 0.01, 0, env.max_swing_ratio)
+                        env.ratio[1] = 1 - env.ratio[0]
+                    if c == 'p':
+                        # switch ratio shift from mirrored to matching and back
+                        env.period_shift[0] = np.clip(env.period_shift[0] + 0.05, 0, 0.5)
+                    if c == ';':
+                        env.period_shift[0] = np.clip(env.period_shift[0] - 0.05, 0, 0.5)
+                    if c == 'x':
+                        if hasattr(policy, 'init_hidden_state'):
+                            policy.init_hidden_state()
+                            m_policy.init_hidden_state()
+
+                start = time.time()
+
+                if (not env.vis.ispaused()):
+
+                    action   = policy(torch.Tensor(state)).numpy()
+                    if hasattr(env, 'mirror_state') and hasattr(env, 'mirror_action'):
+                        m_state = env.mirror_state(state)
+                        m_m_state = env.mirror_state(m_state)
+                        for i, (m_x, x) in enumerate(zip(m_m_state, state)):
+                            if m_x - x != 0:
+                                print("STATE DISCREPANCY:\n\n")
+                                print(i, m_x - x)
+
+                        action_ = m_policy(torch.Tensor(env.mirror_state(state))).numpy()
+                        m_action = env.mirror_action(action_)
+                        m_m_action = env.mirror_action(m_action)
+                        for i, (m_x, x) in enumerate(zip(m_m_action, action_)):
+                            if m_x - x != 0:
+                                print("ACTION DISCREPANCY:\n\n")
+                                print(i, m_x - x)
+
+
+                    if mirror:
+                        pass
+                        action = m_action
+
+                    state, reward, done, _ = env.step(action)
+
+                    eval_reward += reward
+                    timesteps += 1
+                    qvel = env.sim.qvel()
+                    actual_speed = np.linalg.norm(qvel[0:2])
+
+                    #if run_args.pca:
+                    #    pca_plot.update(policy)
+                    #if run_args.pds:
+                    #    pd_plot.update(action, env.l_foot_frc, env.r_foot_frc)
+                    print("Mirror: {} | Des. Spd. {:5.2f} | Speed {:5.1f} | Sidespeed {:4.2f} | Heading {:5.2f} | Freq. {:3d} | Coeff {},{} | Ratio {:3.2f},{:3.2f} | RShift {:3.2f},{:3.2f} | {:20s}".format(mirror, env.speed, actual_speed, env.side_speed, env.orient_add, int(env.phase_add), *env.coeff, *env.ratio, *env.period_shift, ''), end='\r')
+
+                render_state = env.render()
+                if hasattr(env, 'simrate'):
+                    # assume 40hz
+                    end = time.time()
+                    delaytime = max(0, 1000 / 40000 - (end-start))
+                    if slowmo:
+                        while(time.time() - end < delaytime*10):
+                            env.render()
+                            time.sleep(delaytime)
+                    else:
+                        time.sleep(delaytime)
+
+
+            print("Eval reward: ", eval_reward)
+
+        finally:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
 def train_normalizer(policy, min_timesteps, max_traj_len=1000, noise=0.5):
   with torch.no_grad():
     env = env_factory(policy.env_name)()

@@ -4,7 +4,7 @@ import torch
 import hashlib
 from collections import OrderedDict
 
-from util.env import env_factory, eval_policy
+from util.env import env_factory, eval_policy, interactive_eval
 from util.logo import print_logo
 
 if __name__ == "__main__":
@@ -22,11 +22,15 @@ if __name__ == "__main__":
     parser.add_argument("--policy", default="./trained_models/ddpg/ddpg_actor.pt", type=str)
     parser.add_argument("--env",      default=None, type=str)
     parser.add_argument("--traj_len", default=1000, type=int)
+    parser.add_argument("--interactive", action='store_true')
     args = parser.parse_args()
 
     policy = torch.load(args.policy)
 
-    eval_policy(policy, min_timesteps=100000, env=args.env, max_traj_len=args.traj_len)
+    if args.interactive:
+        interactive_eval(args.policy)
+    else:
+        eval_policy(policy, min_timesteps=100000, env=args.env, max_traj_len=args.traj_len)
     exit()
 
   if sys.argv[1] == 'cassie':
