@@ -56,7 +56,22 @@ def env_factory(path, verbose=False, **kwargs):
       else:
         stairs = False
 
-      return partial(DigitEnv, dynamics_randomization=dynamics_randomization, impedance=impedance, standing=standing, footpos=footpos, perception=perception, stairs=stairs)
+      if 'hop_only' in path:
+        hop_only = True
+      else:
+        hop_only = False
+
+      if 'walk_only' in path:
+        walk_only = True
+      else:
+        walk_only = False
+
+      if 'height' in path:
+        height = True
+      else:
+        height = False
+
+      return partial(DigitEnv, dynamics_randomization=dynamics_randomization, impedance=impedance, standing=standing, footpos=footpos, perception=perception, stairs=stairs, hop_only=hop_only, walk_only=walk_only, height=height)
 
     if 'cassie' in path.lower():
       if not os.path.isdir('cassie'):
@@ -204,7 +219,7 @@ def eval_policy(policy, min_timesteps=1000, max_traj_len=1000, visualize=True, e
         print("Eval reward: ", eval_reward)
     return reward_sum / episodes
 
-def interactive_eval(policy_name):
+def interactive_eval(policy_name, env=None):
     from copy import deepcopy
     import termios, sys
     import tty
@@ -215,14 +230,14 @@ def interactive_eval(policy_name):
         #args, run_args = self.args, self.run_args
         #run_args = run_args
 
-        print("env name: ", policy.env_name)
-        #if run_args.env is None:
-        #    env_name = run_args.env
-        #else:
-        #    env_name = run_args.env
+        print("GOT ENV", env)
+        if env is None:
+            env_name = policy.env_name
+        else:
+            env_name = env
+        print("env name: ", env_name)
 
-        env = env_factory(policy.env_name)()
-        print(env)
+        env = env_factory(env_name)()
         env.dynamics_randomization = False
         env.evaluation_mode = True
 

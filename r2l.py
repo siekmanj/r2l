@@ -28,7 +28,7 @@ if __name__ == "__main__":
     policy = torch.load(args.policy)
 
     if args.interactive:
-        interactive_eval(args.policy)
+        interactive_eval(args.policy, env=args.env)
     else:
         eval_policy(policy, min_timesteps=100000, env=args.env, max_traj_len=args.traj_len)
     exit()
