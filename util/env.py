@@ -308,6 +308,10 @@ def interactive_eval(policy_name, env=None):
                         env.phase_add = np.clip(env.phase_add + 1, int(env.simrate * env.min_step_freq), int(env.simrate * env.max_step_freq))
                     if c == 'g':
                         env.phase_add = np.clip(env.phase_add - 1, int(env.simrate * env.min_step_freq), int(env.simrate * env.max_step_freq))
+                    if c == 'y':
+                        env.height = np.clip(env.height + 0.01, env.min_height, env.max_height)
+                    if c == 'h':
+                        env.height = np.clip(env.height - 0.01, env.min_height, env.max_height)
                     if c == 'm':
                         mirror = not mirror
                     if c == 'o':
@@ -330,24 +334,12 @@ def interactive_eval(policy_name, env=None):
                 start = time.time()
 
                 if (not env.vis.ispaused()):
+                    env.precompute_clock()
 
                     action   = policy(torch.Tensor(state)).numpy()
                     if hasattr(env, 'mirror_state') and hasattr(env, 'mirror_action'):
                         m_state = env.mirror_state(state)
-                        m_m_state = env.mirror_state(m_state)
-                        for i, (m_x, x) in enumerate(zip(m_m_state, state)):
-                            if m_x - x != 0:
-                                print("STATE DISCREPANCY:\n\n")
-                                print(i, m_x - x)
-
-                        action_ = m_policy(torch.Tensor(env.mirror_state(state))).numpy()
-                        m_action = env.mirror_action(action_)
-                        m_m_action = env.mirror_action(m_action)
-                        for i, (m_x, x) in enumerate(zip(m_m_action, action_)):
-                            if m_x - x != 0:
-                                print("ACTION DISCREPANCY:\n\n")
-                                print(i, m_x - x)
-
+                        m_action = env.mirror_action(m_policy(m_state).numpy())
 
                     if mirror:
                         pass
@@ -364,7 +356,7 @@ def interactive_eval(policy_name, env=None):
                     #    pca_plot.update(policy)
                     #if run_args.pds:
                     #    pd_plot.update(action, env.l_foot_frc, env.r_foot_frc)
-                    print("Mirror: {} | Des. Spd. {:5.2f} | Speed {:5.1f} | Sidespeed {:4.2f} | Heading {:5.2f} | Freq. {:3d} | Coeff {},{} | Ratio {:3.2f},{:3.2f} | RShift {:3.2f},{:3.2f} | {:20s}".format(mirror, env.speed, actual_speed, env.side_speed, env.orient_add, int(env.phase_add), *env.coeff, *env.ratio, *env.period_shift, ''), end='\r')
+                    print("Mirror: {} | Des. Spd. {:5.2f} | Speed {:5.1f} | Sidespeed {:4.2f} | Heading {:5.2f} | Freq. {:3d} | Coeff {},{} | Ratio {:3.2f},{:3.2f} | RShift {:3.2f},{:3.2f} | Height {:3.2f} \ {:20s}".format(mirror, env.speed, actual_speed, env.side_speed, env.orient_add, int(env.phase_add), *env.coeff, *env.ratio, *env.period_shift, env.height, ''), end='\r')
 
                 render_state = env.render()
                 if hasattr(env, 'simrate'):
