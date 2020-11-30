@@ -13,15 +13,26 @@ from copy import deepcopy
 
 class ReplayBuffer():
   def __init__(self, max_size):
-    self.max_size  = int(max_size)
-    self.states    = [] 
-    self.actions   = [] 
+    self.max_size    = int(max_size)
+    self.states      = [] 
+    self.actions     = [] 
     self.next_states = []
-    self.rewards   = [] 
-    self.not_dones = []
-    self.traj_idx  = [0]
-    self.size      = 0
-    self.buffer_ready = False
+    self.rewards     = [] 
+    self.not_dones   = []
+    self.traj_idx    = [0]
+    self.size        = 0
+
+  def _cull_buffer(self):
+    while len(self.states) > self.max_size:
+      length           = self.traj_idx[1]
+      self.states      = self.states[self.traj_idx[1]:]
+      self.actions     = self.actions[self.traj_idx[1]:]
+      self.next_states = self.next_states[self.traj_idx[1]:]
+      self.rewards     = self.rewards[self.traj_idx[1]:]
+      self.not_dones   = self.not_dones[self.traj_idx[1]:]
+      self.traj_idx    = [idx - length for idx in self.traj_idx[1:]]
+
+    self.size = len(self.states)
 
   def push(self, state, action, next_state, reward, done):
     self.states      += [state]
@@ -33,7 +44,7 @@ class ReplayBuffer():
     if done:
       self.traj_idx.append(len(self.states))
 
-    self.size = len(self.states)
+    self._cull_buffer()
 
   def merge_with(self, buffers):
     for b in buffers:
@@ -46,17 +57,7 @@ class ReplayBuffer():
       self.traj_idx    += [offset + i for i in b.traj_idx[1:]]
       self.size        += b.size
 
-    while len(self.states) > self.max_size:
-      length           = self.traj_idx[1]
-      self.states      = self.states[self.traj_idx[1]:]
-      self.actions     = self.actions[self.traj_idx[1]:]
-      self.next_states = self.next_states[self.traj_idx[1]:]
-      self.rewards     = self.rewards[self.traj_idx[1]:]
-      self.not_dones   = self.not_dones[self.traj_idx[1]:]
-      self.traj_idx    = [idx - length for idx in self.traj_idx[1:]]
-
-    self.size = len(self.states)
-
+    self._cull_buffer()
 
   def sample(self, batch_size, recurrent=False):
     if recurrent:
@@ -83,9 +84,8 @@ class ReplayBuffer():
 
       return states, actions, next_states, rewards, not_dones, traj_mask
     else:
-      idx      = np.random.randint(0, self.size-1, size=batch_size)
-      next_idx = idx + 1
-      return self.state[idx], self.action[idx], self.next_state[next_idx], self.reward[idx], self.not_done[idx], 1
+      idx = np.random.randint(0, self.size-1, size=batch_size)
+      return self.states[idx], self.actions[idx], self.next_states[next_idx], self.rewards[idx], self.not_dones[idx], 1
 
 @ray.remote
 class Off_Policy_Worker:
@@ -128,6 +128,7 @@ class Off_Policy_Worker:
 
         if steps > max_len:
           done = True
+          #print("sending done, max len,", max_len, "steps: ", steps)
 
         buff.push(state, action, next_state, reward, done)
 
@@ -165,8 +166,8 @@ def eval_policy(policy, env, episodes, traj_len):
     return reward_sum / episodes
 
 def run_experiment(args):
-  from policies.critic import FF_Q, LSTM_Q
-  from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor, FF_Actor, LSTM_Actor
+  from policies.critic import FF_Q, LSTM_Q, GRU_Q
+  from policies.actor import FF_Stochastic_Actor, LSTM_Stochastic_Actor, GRU_Stochastic_Actor, FF_Actor, LSTM_Actor, GRU_Actor
 
   locale.setlocale(locale.LC_ALL, '')
 
@@ -259,19 +260,23 @@ def run_experiment(args):
   # Fill replay buffer, update policy until n timesteps have passed
   timesteps, episodes = 0, 0
   state = env.reset().astype(np.float32)
-  while timesteps < args.timesteps:
+  for i in range(args.iterations):
+    if timesteps < args.timesteps:
+      actor_param_id  = ray.put(list(algo.actor.parameters()))
+      norm_id = ray.put([algo.actor.welford_state_mean, algo.actor.welford_state_mean_diff, algo.actor.welford_state_n])
 
-    actor_param_id  = ray.put(list(algo.actor.parameters()))
-    norm_id = ray.put([algo.actor.welford_state_mean, algo.actor.welford_state_mean_diff, algo.actor.welford_state_n])
+      for w in workers:
+        w.sync_policy.remote(actor_param_id, input_norm=norm_id)
 
-    for w in workers:
-      w.sync_policy.remote(actor_param_id, input_norm=norm_id)
+      buffers = ray.get([w.collect_episode.remote(args.expl_noise, args.traj_len) for w in workers])
 
-    buffers = ray.get([w.collect_episode.remote(args.expl_noise, args.traj_len) for w in workers])
+      replay_buff.merge_with(buffers)
 
-    replay_buff.merge_with(buffers)
+      timesteps += sum(len(b.states) for b in buffers)
 
-    timesteps += sum(len(b.states) for b in buffers)
+      #for i in range(len(replay_buff.traj_idx)-1):
+      #  for j in range(replay_buff.traj_idx[i], replay_buff.traj_idx[i+1]):
+      #    print("traj {:2d} timestep {:3d}, not done {}, reward {},".format(i, j, replay_buff.not_dones[j], replay_buff.rewards[j]))
 
     if (algo.recurrent and len(replay_buff.traj_idx) > args.batch_size) or (not algo.recurrent and replay_buff.size > args.batch_size):
       episodes += 1
@@ -280,13 +285,10 @@ def run_experiment(args):
         loss.append(algo.update_policy(replay_buff, batch_size=args.batch_size))
       loss = np.mean(loss, axis=0)
 
-      eval_reward = eval_policy(algo.actor, env, 5, args.traj_len)
-      logger.add_scalar(args.env + '/return', eval_reward, timesteps)
-
-      if args.algo == 'td3':
-        print('episode {:6n} {:6.2f} | actor loss {:6.4f} | critic loss {:6.4f} | buffer size {:6n} / {:6n} ({:4n}) | {:60s}'.format(
-          episodes, 
-          eval_reward, 
+      print('algo {:4s} | explored: {:5n} of {:5n}'.format(args.algo, timesteps, args.timesteps), end=' | ')
+      if args.algo == 'ddpg':
+        print('iteration {:6n} | actor loss {:6.4f} | critic loss {:6.4f} | buffer size {:6n} / {:6n} ({:4n} trajectories) | {:60s}'.format(
+          i+1, 
           loss[0], 
           loss[1], 
           replay_buff.size, 
@@ -294,9 +296,36 @@ def run_experiment(args):
           len(replay_buff.traj_idx), 
           ''
         ))
-        logger.add_scalar(args.env + '/actor loss', loss[0], timesteps)
-        logger.add_scalar(args.env + '/critic loss', loss[1], timesteps)
+        logger.add_scalar(args.env + '/actor loss', loss[0], i)
+        logger.add_scalar(args.env + '/critic loss', loss[1], i)
+      if args.algo == 'td3':
+        print('iteration {:6n} | actor loss {:6.4f} | critic loss {:6.4f} | buffer size {:6n} / {:6n} ({:4n} trajectories) | {:60s}'.format(
+          i+1, 
+          loss[0], 
+          loss[1], 
+          replay_buff.size, 
+          replay_buff.max_size,
+          len(replay_buff.traj_idx), 
+          ''
+        ))
+        logger.add_scalar(args.env + '/actor loss', loss[0], i)
+        logger.add_scalar(args.env + '/critic loss', loss[1], i)
 
+      if i % args.eval_every == 0 and iter != 0:
+        eval_reward = eval_policy(algo.actor, env, 5, args.traj_len)
+        logger.add_scalar(args.env + '/return', eval_reward, i)
+
+        print("evaluation after {:4d} iterations | return: {:7.3f}".format(i, eval_reward, ''))
+        if best_reward is None or eval_reward > best_reward:
+          torch.save(algo.actor, args.save_actor)
+          best_reward = eval_reward
+          print("\t(best policy so far! saving to {})".format(args.save_actor))
+
+    else:
+        if algo.recurrent:
+            print("Collected {:5d} of {:5d} warmup trajectories \t\t".format(len(replay_buff.traj_idx), args.batch_size), end='\r')
+        else:
+            print("Collected {:5d} of {:5d} warmup trajectories \t\t".format(replay_buff.size, args.batch_size), end='\r')
     """
       if args.algo == 'sac':
         alpha_loss = np.mean([loss[2] for loss in losses])
@@ -308,13 +337,4 @@ def run_experiment(args):
       hrs_remaining  = int(secs_remaining//(60*60))
       min_remaining  = int(secs_remaining - hrs_remaining*60*60)//60
 
-      if iter % args.eval_every == 0 and iter != 0:
-        eval_reward = eval_policy(algo.actor, min_timesteps=1000, verbose=False, visualize=False, max_traj_len=args.traj_len)
-        logger.add_scalar(args.env + '/return', eval_reward, timesteps - args.start_timesteps)
-
-        print("evaluation after {:4d} episodes | return: {:7.3f} | timesteps {:9n}{:100s}".format(iter, eval_reward, timesteps - args.start_timesteps, ''))
-        if best_reward is None or eval_reward > best_reward:
-          torch.save(algo.actor, args.save_actor)
-          best_reward = eval_reward
-          print("\t(best policy so far! saving to {})".format(args.save_actor))
     """

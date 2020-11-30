@@ -391,6 +391,7 @@ def train_normalizer(policy, min_timesteps, max_traj_len=1000, noise=0.5):
         policy.init_hidden_state()
 
       while not done and timesteps < max_traj_len:
+        state = torch.from_numpy(state).float()
         if noise is None:
           action = policy.forward(state, update_norm=True, deterministic=False).numpy()
         else:

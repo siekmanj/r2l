@@ -96,7 +96,7 @@ if __name__ == "__main__":
   parser.add_argument("--traj_len",       "-tl",  default=1000,        type=int)    # max trajectory length for environment
   parser.add_argument("--env",            "-e",   default="Hopper-v3", type=str)    # environment to train on
   parser.add_argument("--layers",                 default="256,256",   type=str)    # hidden layer sizes in policy
-  parser.add_argument("--timesteps",      "-t",   default=1e6,         type=float)  # timesteps to run experiment for
+  parser.add_argument("--timesteps",      "-t",   default=1e6,         type=float)  # timesteps to explore environment for
 
   if sys.argv[1] == 'ars':
     sys.argv.remove(sys.argv[1])
@@ -122,6 +122,7 @@ if __name__ == "__main__":
     run_experiment(args)
 
   elif sys.argv[1] == 'udrl':
+    raise NotImplementedError
     sys.argv.remove(sys.argv[1])
     """
       Utility for running Upside-Down Reinforcement Learning.
@@ -142,21 +143,24 @@ if __name__ == "__main__":
       Utility for running Recurrent/Deep Deterministic Policy Gradients.
     """
     from algos.off_policy import run_experiment
-    parser.add_argument("--start_timesteps",        default=1e4,   type=int)      # number of timesteps to generate random actions for
-    parser.add_argument("--load_actor",             default=None,  type=str)      # load an actor from a .pt file
-    parser.add_argument("--load_critic",            default=None,  type=str)      # load a critic from a .pt file
-    parser.add_argument('--discount',               default=0.99,  type=float)    # the discount factor
-    parser.add_argument('--expl_noise',             default=0.2,   type=float)    # random noise used for exploration
-    parser.add_argument('--tau',                    default=0.01, type=float)     # update factor for target networks
-    parser.add_argument("--a_lr",           "-alr", default=1e-5,  type=float)    # adam learning rate for critic
-    parser.add_argument("--c_lr",           "-clr", default=1e-4,  type=float)    # adam learning rate for actor
-    parser.add_argument("--normalize"       '-n',   action='store_true')          # normalize states online
-    parser.add_argument("--batch_size",             default=64,    type=int)      # batch size for policy update
-    parser.add_argument("--updates",                default=1,    type=int)       # (if recurrent) number of times to update policy per episode
-    parser.add_argument("--eval_every",             default=100,   type=int)      # how often to evaluate the trained policy
-    parser.add_argument("--save_actor",             default=None, type=str)
-    parser.add_argument("--save_critic",            default=None, type=str)
-    parser.add_argument("--prenormalize_steps",     default=10000,         type=int)      
+    parser.add_argument("--start_timesteps",        default=1e4,   type=int)   # number of timesteps to warm up replay buffer
+    parser.add_argument("--load_actor",             default=None,  type=str)   # load an actor from a .pt file
+    parser.add_argument("--load_critic",            default=None,  type=str)   # load a critic from a .pt file
+    parser.add_argument('--discount',               default=0.99,  type=float) # the discount factor
+    parser.add_argument('--expl_noise',             default=0.2,   type=float) # random noise used for exploration
+    parser.add_argument('--tau',                    default=0.01,  type=float) # update factor for target networks
+    parser.add_argument("--a_lr",           "-alr", default=1e-5,  type=float) # adam learning rate for critic
+    parser.add_argument("--c_lr",           "-clr", default=1e-4,  type=float) # adam learning rate for actor
+    parser.add_argument("--normalize"       '-n',   action='store_true')       # normalize states online
+    parser.add_argument("--batch_size",             default=64,    type=int)   # batch size for policy update
+    parser.add_argument("--updates",                default=1,     type=int)   # (if recurrent) number of times to update policy per episode
+    parser.add_argument("--eval_every",             default=100,   type=int)   # how often to evaluate the trained policy
+    parser.add_argument("--save_actor",             default=None,  type=str)
+    parser.add_argument("--save_critic",            default=None,  type=str)
+    parser.add_argument("--prenormalize_steps",     default=10000, type=int)   
+    parser.add_argument("--buffer",                 default=1e4,   type=float) # buffer size
+    parser.add_argument("--workers",                default=4,     type=int)
+    parser.add_argument("--iterations",             default=1000,  type=int)   # number of total iterations to run
 
     parser.add_argument("--logdir",                 default="./logs/ddpg/", type=str)
 
