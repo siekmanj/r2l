@@ -258,9 +258,9 @@ def run_experiment(args):
   train_normalizer(algo.actor, args.prenormalize_steps, noise=algo.expl_noise)
 
   # Fill replay buffer, update policy until n timesteps have passed
-  timesteps, episodes = 0, 0
+  timesteps, i = 0, 0
   state = env.reset().astype(np.float32)
-  for i in range(args.iterations):
+  while i < args.iterations:
     if timesteps < args.timesteps:
       actor_param_id  = ray.put(list(algo.actor.parameters()))
       norm_id = ray.put([algo.actor.welford_state_mean, algo.actor.welford_state_mean_diff, algo.actor.welford_state_n])
@@ -279,7 +279,7 @@ def run_experiment(args):
       #    print("traj {:2d} timestep {:3d}, not done {}, reward {},".format(i, j, replay_buff.not_dones[j], replay_buff.rewards[j]))
 
     if (algo.recurrent and len(replay_buff.traj_idx) > args.batch_size) or (not algo.recurrent and replay_buff.size > args.batch_size):
-      episodes += 1
+      i += 1
       loss = []
       for _ in range(args.updates):
         loss.append(algo.update_policy(replay_buff, batch_size=args.batch_size))

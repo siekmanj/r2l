@@ -13,6 +13,9 @@ class Actor:
     self.env_name          = env_name
     self.network_out       = nn.Linear(latent, action_dim)
 
+    self.network_out.weight.data.mul_(0.01)
+    self.network_out.bias.data.fill_(0)
+
   def deterministic_forward(self, state, update=False):
     state = self.normalize_state(state, update=update)
     x = self._base_forward(state)

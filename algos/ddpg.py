@@ -60,6 +60,6 @@ class DDPG():
     actor_loss.backward()
     self.actor_optimizer.step()
 
-    self.soft_update(self.tau)
+    self.soft_update(1-self.tau)
 
     return actor_loss.item(), critic_loss.item()
