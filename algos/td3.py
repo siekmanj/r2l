@@ -42,19 +42,21 @@ class TD3():
     for param, target_param in zip(self.actor.parameters(), self.target_actor.parameters()):
       target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
-  def update_policy(self, replay_buffer, batch_size=256, traj_len=1000, grad_clip=None, noise_clip=0.2):
+  def update_policy(self, replay_buffer, batch_size=256, grad_clip=None, noise_clip=0.2):
     self.n += 1
 
-    states, actions, next_states, rewards, not_dones, steps, mask = replay_buffer.sample(batch_size, recurrent=self.recurrent)
+    states, actions, next_states, rewards, not_dones, mask = replay_buffer.sample(batch_size, recurrent=self.recurrent)
 
     with torch.no_grad():
       noise        = (torch.randn_like(actions) * self.policy_noise).clamp(-noise_clip, noise_clip)
-      next_actions = (self.target_actor(next_states) + noise)
+      next_actions = self.target_actor(next_states)
+
+      next_actions += noise
 
       target_q1 = self.target_q1(next_states, next_actions)
       target_q2 = self.target_q2(next_states, next_actions)
 
-      target_q = rewards + not_dones * self.discount * torch.min(target_q1, target_q2) * mask
+      target_q = rewards + not_dones * self.discount * torch.min(target_q1, target_q2)
 
     current_q1 = self.q1(states, actions) * mask
     current_q2 = self.q2(states, actions) * mask
@@ -70,7 +72,7 @@ class TD3():
     self.q2_optimizer.step()
 
     if self.n % self.update_every == 0:
-      actor_loss = -(self.q1(states, self.actor(states) * mask) * mask).mean()
+      actor_loss = -(self.q1(states, self.actor(states)) * mask).mean()
 
       self.actor_optimizer.zero_grad()
       actor_loss.backward()
@@ -79,4 +81,4 @@ class TD3():
       
       self.soft_update(self.tau)
 
-    return actor_loss.item(), critic_loss.item(), steps
+    return actor_loss.item(), critic_loss.item()
